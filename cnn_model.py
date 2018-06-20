@@ -12,6 +12,7 @@ from keras.utils import np_utils
 from keras import backend as K
 from keras.regularizers import l2
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard, ModelCheckpoint
+from keras.utils import Sequence
 from helpers import *
 
 class CnnModel:
@@ -280,19 +281,31 @@ class CnnModel:
 
                 yield (X_batch, Y_batch)
 
-        # Reduce learning rate iff training accuracy not improving for 2 epochs
+        validation_data = ValidationSequence(images_validate, groundtruth_validate, batch_size, nb_classes,
+                                             self.context, self.patch_size, batches_validate)
+
+        validate_patches = []
+        validate_labels = []
+        for i in range(batches_validate):
+            temp_patches, temp_labels = next(validation_data)
+            validate_patches.append(temp_patches)
+            validate_labels.append(temp_labels)
+        validate_patches = np.rollaxis(np.reshape(np.asarray(validate_patches), (batches_validate * batch_size, self.context, self.context, 3)), 3, 1)
+        validate_labels = np.reshape(np.asarray(validate_labels), (batches_validate * batch_size, 2))
+        validate_data = (validate_patches, validate_labels)
+
+        # Reduce learning rate iff validation accuracy not improving for 2 epochs
         lr_callback = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=2,
                                         verbose=1, mode='auto', min_delta=1e-2, cooldown=0, min_lr=0)
         
-        # Stop training early iff training accuracy not improving for 5 epochs
+        # Stop training early iff validation accuracy not improving for 5 epochs
         stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=0.001, patience=5, verbose=1,
                                       mode='auto')
 
         # Enable Tensorboard logging with graphs, gradients, images and historgrams
-        # TODO: Include validation set
         tensorboard = TensorBoard(log_dir='./logs',
-                                  histogram_freq=0,  # Set to 1 once validation uses a Sequence instead of Generator
-                                  batch_size=16,
+                                  histogram_freq=1,
+                                  batch_size=batch_size,
                                   write_graph=True,
                                   write_grads=True,
                                   write_images=True,
@@ -300,11 +313,22 @@ class CnnModel:
                                   embeddings_layer_names=None,
                                   embeddings_metadata=None)
 
+        # Hacky Tensorboard wrapper to
+        tensorboard_hack = TensorBoardWrapper(validate_data,
+                                              nb_steps=batches_validate,
+                                              log_dir='./logs',
+                                              histogram_freq=1,
+                                              batch_size=batch_size,
+                                              write_graph=True,
+                                              write_grads=True,
+                                              write_images=False)  # Visualizations of layers where applicable, not superbly useful
+
         # Save the model's state on each epoch, given the epoch has better fitness
-        checkpointer = ModelCheckpoint(filepath='./weights-temp.hdf5',
-                                       monitor='val_acc',  # TODO: Validation accurary not logged correctly
+        filepath = "weights-{epoch:03d}-{val_binary_accuracy:.4f}.hdf5"
+        checkpointer = ModelCheckpoint(filepath=filepath,
+                                       monitor='val_binary_accuracy',  # TODO: Validation accurary not logged correctly
                                        verbose=1,
-                                       save_best_only=True,
+                                       save_best_only=False,
                                        period=1)
 
         opt = Adam(lr=1e-4)
@@ -318,11 +342,10 @@ class CnnModel:
                 steps_per_epoch=batches_train,
                 epochs=nb_epoch,
                 verbose=1,
-                callbacks=[lr_callback, stop_callback, tensorboard, checkpointer],
+                callbacks=[tensorboard_hack, checkpointer, lr_callback, stop_callback],
                 shuffle=True,
-                validation_data=batch_generator(images_validate, groundtruth_validate),
-                validation_steps=batches_validate
-                )
+                validation_data=validate_data)
+                # validation_steps=batches_validate)
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass
@@ -355,3 +378,97 @@ class CnnModel:
         
         # Regroup patches into images
         return group_patches(Z, X.shape[0])
+
+
+class ValidationSequence(Sequence):
+    def __init__(self, x_set, y_set, batch_size, classes, context_size, patch_size, limit):
+        self.x, self.y = x_set, y_set
+        self.batch_size = batch_size
+        self.classes = classes
+        self.context = context_size
+        self.patch_size = patch_size
+        self.limit = limit
+        self.idx = 0
+
+    def __len__(self):
+        return int(np.ceil(len(self.x) / float(self.batch_size)))
+
+    def __getitem__(self, idx):
+        X_batch = np.empty((self.batch_size, self.context, self.context, 3))
+        Y_batch = np.empty((self.batch_size, 2))
+
+        for i in range(self.batch_size):
+            # Select a random image
+            idx = np.random.choice(self.x.shape[0])
+            shape = self.x[idx].shape
+
+            # Sample a random window from the image
+            center = np.random.randint(self.context // 2, shape[0] - self.context // 2, 2)
+            sub_image = self.x[idx][center[0] - self.context // 2:center[0] + self.context // 2,
+                        center[1] - self.context // 2:center[1] + self.context // 2]
+            gt_sub_image = self.y[idx][
+                           center[0] - self.patch_size // 2:center[0] + self.patch_size // 2,
+                           center[1] - self.patch_size // 2:center[1] + self.patch_size // 2]
+
+            # Image augmentation
+            # Random flip
+            if np.random.choice(2) == 0:
+                # Flip vertically
+                sub_image = np.flipud(sub_image)
+            if np.random.choice(2) == 0:
+                # Flip horizontally
+                sub_image = np.fliplr(sub_image)
+
+            # Random rotation in steps of 90°
+            num_rot = np.random.choice(4)
+            sub_image = np.rot90(sub_image, num_rot)
+
+            # The label does not depend on the image rotation/flip (provided that the rotation is in steps of 90°)
+            label = (np.array([np.mean(gt_sub_image)]) > 0.25) * 1
+            label = np_utils.to_categorical(label, 2)
+            X_batch[i] = sub_image
+            Y_batch[i] = label
+
+        if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
+            X_batch = np.rollaxis(X_batch, 3, 1)
+
+        return (X_batch, Y_batch)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        self.idx += 1
+        if self.idx > self.limit:
+            self.idx = 0
+            raise StopIteration
+        else:
+            return self.__getitem__(self.idx - 1)
+
+
+class TensorBoardWrapper(TensorBoard):
+    '''Sets the self.validation_data property for use with TensorBoard callback.'''
+    # https://github.com/keras-team/keras/issues/3358#issuecomment-312531958
+
+    def __init__(self, val_data, batch_size, nb_steps, **kwargs):
+        super().__init__(**kwargs)
+        self.val_data = val_data      # Validation data of (patches, labels)
+        self.batch_size = batch_size  # Size of single batch
+        self.nb_steps = nb_steps      # Number of batches
+
+    def on_epoch_end(self, epoch, logs):
+        # Fill in the `validation_data` property. Obviously this is specific to how your generator works.
+        # Below is an example that yields images and classification tags.
+        # After it's filled in, the regular on_epoch_end method has access to the validation_data.
+        imgs, tags = None, None
+        for s in range(self.nb_steps):
+            ib = self.val_data[0][s * self.batch_size: (s + 1) * self.batch_size]
+            tb = self.val_data[1][s * self.batch_size: (s + 1) * self.batch_size]
+            # ib, tb = next(self.batch_gen)
+            if imgs is None and tags is None:
+                imgs = np.zeros((self.nb_steps * ib.shape[0], *ib.shape[1:]), dtype=np.float32)
+                tags = np.zeros((self.nb_steps * tb.shape[0], *tb.shape[1:]), dtype=np.float32)
+            imgs[s * ib.shape[0]:(s + 1) * ib.shape[0]] = ib
+            tags[s * tb.shape[0]:(s + 1) * tb.shape[0]] = tb
+        self.validation_data = [imgs, tags, np.ones(imgs.shape[0]), 0.0]
+        return super().on_epoch_end(epoch, logs)
