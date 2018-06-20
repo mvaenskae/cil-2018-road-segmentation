@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from keras.models import Sequential, Model
-from keras.layers import Dense, Dropout, Activation, Flatten
+from keras.models import Model
+from keras.layers import Dense, Activation, Flatten
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU, PReLU
 from keras.layers import Input, merge
@@ -10,24 +10,23 @@ from keras import losses
 from keras import metrics
 from keras.utils import np_utils
 from keras import backend as K
-from keras.regularizers import l2
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard, ModelCheckpoint
 from keras.utils import Sequence
 from helpers import *
 
 class CnnModel:
     FULL_PREACTIVATION = False
-    USE_LEAKY_RELU = True
+    USE_LEAKY_RELU = False
     LEAKY_RELU_ALPHA = 0.01
     DATA_FORMAT = 'channels_first'
     REG_FACTOR = 1e-6  # L2 regularization factor (used on weights, but not biases)
 
     def __init__(self):
         """ Construct a CNN classifier. """
-        
         self.patch_size = 16
-        self.context = 64
+        self.context = 80
         self.padding = (self.context - self.patch_size) // 2
+        self.model = None
         self.initialize()
         
     def initialize(self):
@@ -36,6 +35,8 @@ class CnnModel:
         window_size = self.context
         padding = self.padding
         nb_classes = 2
+        RESNET_FEATURES = [64, 128, 256, 512]
+        RESNET_REPETITIONS = [2, 2, 2, 2]
 
         # Compatibility with Theano and Tensorflow ordering
         if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
@@ -43,46 +44,26 @@ class CnnModel:
         else:
             input_shape = (window_size, window_size, 3)
 
-        def _conv2d(filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same', first=False):
-            if first:
-                return Conv2D(
-                    filters=filters,
-                    kernel_size=kernel_size,
-                    strides=strides,
-                    padding=padding,
-                    data_format=CnnModel.DATA_FORMAT,
-                    dilation_rate=dilation_rate,
-                    activation=None,
-                    use_bias=True,
-                    kernel_initializer='glorot_uniform',
-                    bias_initializer='zeros',
-                    kernel_regularizer=None,
-                    bias_regularizer=None,
-                    activity_regularizer=None,
-                    kernel_constraint=None,
-                    bias_constraint=None,
-                    input_shape=input_shape
-                )
-            else:
-                return Conv2D(
-                    filters=filters,
-                    kernel_size=kernel_size,
-                    strides=strides,
-                    padding=padding,
-                    data_format=CnnModel.DATA_FORMAT,
-                    dilation_rate=dilation_rate,
-                    activation=None,
-                    use_bias=True,
-                    kernel_initializer='glorot_uniform',
-                    bias_initializer='zeros',
-                    kernel_regularizer=None,
-                    bias_regularizer=None,
-                    activity_regularizer=None,
-                    kernel_constraint=None,
-                    bias_constraint=None
-                )
+        def _conv2d(_input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same'):
+            return Conv2D(
+                filters=filters,
+                kernel_size=kernel_size,
+                strides=strides,
+                padding=padding,
+                data_format=CnnModel.DATA_FORMAT,
+                dilation_rate=dilation_rate,
+                activation=None,
+                use_bias=True,
+                kernel_initializer='glorot_uniform',
+                bias_initializer='zeros',
+                kernel_regularizer=None,
+                bias_regularizer=None,
+                activity_regularizer=None,
+                kernel_constraint=None,
+                bias_constraint=None
+            )(_input)
 
-        def _batch_norm():
+        def _batch_norm(_input):
             return BatchNormalization(
                 axis=-1,
                 momentum=0.99,
@@ -97,112 +78,115 @@ class CnnModel:
                 gamma_regularizer=None,
                 beta_constraint=None,
                 gamma_constraint=None
-            )
+            )(_input)
 
-        def _act_fun(use_leaky=CnnModel.USE_LEAKY_RELU):
+        def _act_fun(_input, use_leaky=CnnModel.USE_LEAKY_RELU):
             if use_leaky:
-                return LeakyReLU(alpha=CnnModel.LEAKY_RELU_ALPHA)
+                return LeakyReLU(alpha=CnnModel.LEAKY_RELU_ALPHA)(_input)
             else:
                 # return ReLU()
                 return PReLU(
                     alpha_initializer='zeros',
                     alpha_regularizer=None,
                     alpha_constraint=None,
-                    shared_axes=None)
+                    shared_axes=None)(_input)
 
-        def _max_pool(pool=(2, 2), strides=(2, 2), padding='same'):
+        def _max_pool(_input, pool=(2, 2), strides=(2, 2), padding='same'):
             return MaxPooling2D(
                 pool_size=pool,
                 strides=strides,
                 padding=padding,
                 data_format=CnnModel.DATA_FORMAT
-            )
+            )(_input)
 
-        def _cbr(filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same', get_model=False):
-            x_orig = Input(shape=input_shape)
+        def _dense(_input, neurons):
+            return Dense(
+                units=neurons,
+                activation=None,
+                use_bias=True,
+                kernel_initializer='glorot_uniform',
+                bias_initializer='zeros',
+                kernel_regularizer=None,
+                bias_regularizer=None,
+                activity_regularizer=None,
+                kernel_constraint=None,
+                bias_constraint=None
+            )(_input)
+
+        def _flatten(_input):
+            return Flatten(data_format=CnnModel.DATA_FORMAT)(_input)
+
+        def _cbr(_input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same', get_model=False):
+            x_orig = _input
             x = x_orig
             if not self.FULL_PREACTIVATION:
-                x = _conv2d(filters, kernel_size, strides, dilation_rate, padding)(x)
-            x = _batch_norm()(x)
-            x = _act_fun()(x)
+                x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
+            x = _batch_norm(x)
+            x = _act_fun(x)
             if self.FULL_PREACTIVATION:
-                x = _conv2d(filters, kernel_size, strides, dilation_rate, padding)(x)
+                x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
             if get_model:
                 Model(input=x_orig, output=x)
             else:
                 return x
 
-        def _resnet_stem():
-            x_orig = Input(shape=input_shape)
-            x = x_orig
-            x = _conv2d(filters=64, kernel_size=(5, 5), strides=(2, 2))(x)
-            x = _batch_norm()(x)
-            x = _act_fun()(x)
-            x = _max_pool(pool=(3, 3))(x)
-            Model(input=x_orig, output=x)
+        def resnet_stem(_input):
+            x = _input
+            x = _conv2d(x, filters=64, kernel_size=(5, 5), strides=(2, 2))
+            x = _batch_norm(x)
+            x = _act_fun(x)
+            x = _max_pool(x, pool=(3, 3))
+            return x
 
-        def _vanilla_branch(filters, strides, dilation):
-            x_orig = Input(shape=input_shape)
-            x = x_orig
-            x = _cbr(filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation)
-            x = _cbr(filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
-            Model(input=x_orig, output=x)
+        def _vanilla_branch(_input, filters, strides, dilation=(1, 1)):
+            x = _input
+            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation)
+            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
+            return x
 
-        def _bottleneck_branch(filters, strides, dilation):
-            x_orig = Input(shape=input_shape)
-            x = x_orig
-            x = _cbr(filters=filters, kernel_size=(1, 1), strides=strides, dilation_rate=dilation)
-            x = _cbr(filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
-            x = _cbr(filters=4*filters, kernel_size=(1, 1), strides=(1, 1), dilation_rate=dilation)
-            Model(input=x_orig, output=x)
+        def _bottleneck_branch(_input, filters, strides, dilation=(1, 1)):
+            x = _input
+            x = _cbr(x, filters=filters, kernel_size=(1, 1), strides=strides, dilation_rate=dilation)
+            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
+            x = _cbr(x, filters=4*filters, kernel_size=(1, 1), strides=(1, 1), dilation_rate=dilation)
+            return x
 
-        def _shortcut(filters, strides, is_bottleneck=False):
+        def _shortcut(_input, filters, strides=(1, 1), is_bottleneck=False):
+            x = _input
             first_filters = filters
             if is_bottleneck:
                 first_filters = 4 * filters
-            _cbr(first_filters, kernel_size=(1, 1), strides=strides)
+            x = _cbr(x, first_filters, kernel_size=(1, 1), strides=strides)
+            return x
 
-        def _vanilla(filters, is_first=False):
+        def resnet_vanilla(_input, filters, is_first=False):
             if is_first:
                 if filters == 64:
                     strides = 1
                 else:
                     strides = 2
-                shortcut = _shortcut(filters, strides)
-                residual = _vanilla_branch(filters, strides)
+                shortcut = _shortcut(_input, filters, strides)
+                residual = _vanilla_branch(_input, filters, strides)
             else:
-                shortcut = Input(shape=input_shape)
-                residual = _vanilla_branch(filters)
+                shortcut = _input
+                residual = _vanilla_branch(_input, filters, strides=(1, 1))
             res = merge([shortcut, residual], mode='sum')
+            return res
 
-        self.model = Sequential()
+        input_tensor = Input(shape=input_shape)
+        x = input_tensor
+        x = resnet_stem(x)
+        for i, layers in enumerate(RESNET_REPETITIONS):
+            for j in range(layers):
+                x = resnet_vanilla(x, RESNET_FEATURES[i], (j == 0))
 
-        self.model.add(_conv2d(64, (5, 5), first=True))
-        self.model.add(_batch_norm())
-        self.model.add(_act_fun())
-        self.model.add(_max_pool())
-        self.model.add(_conv2d(128, (3, 3)))
-        self.model.add(_batch_norm())
-        self.model.add(_act_fun())
-        self.model.add(_max_pool())
-        self.model.add(_conv2d(256, (3, 3)))
-        self.model.add(_batch_norm())
-        self.model.add(_act_fun())
-        self.model.add(_max_pool())
-        self.model.add(_conv2d(512, (3, 3)))
-        self.model.add(_batch_norm())
-        self.model.add(_act_fun())
-        self.model.add(_max_pool())
+        x = _flatten(x)
+        x = _dense(x, (self.context * self.context) // (self.patch_size * self.patch_size))
+        x = _act_fun(x)
+        x = _dense(x, nb_classes)
+        x = Activation('softmax')(x)
+        self.model = Model(input=input_tensor, outputs=x)
 
-        self.model.add(Flatten())
-        self.model.add(Dense(128, W_regularizer=l2(CnnModel.REG_FACTOR))) # Fully connected layer (128 neurons)
-        self.model.add(_act_fun())
-        self.model.add(Dropout(0.5))
-
-        self.model.add(Dense(nb_classes, W_regularizer=l2(CnnModel.REG_FACTOR)))
-        self.model.add(Activation('softmax')) # Not needed since we use logits
-        
-    
     def train(self, epochs):
         """
         Train this model with the given dataset.
@@ -215,7 +199,6 @@ class CnnModel:
 
         # Read images from disk
         images, groundtruth = read_images_plus_labels()
-        print('Dataset shape: ', images.shape)
         samples_per_image = images.shape[1] * images.shape[2] // (self.patch_size * self.patch_size)
 
         # Pad images (by appling mirror boundary conditions)
@@ -234,6 +217,9 @@ class CnnModel:
 
         batches_train = (images_train.shape[0] * samples_per_image) // batch_size
         batches_validate = (images_validate.shape[0] * samples_per_image) // batch_size
+
+        print('Dataset shape:', images.shape, '( Train:', images_train.shape[0], '| Validate:', images_validate.shape[0], ')')
+        print('Samples per image:', samples_per_image, '( Trainsteps per epoch:', batches_train, '| Validatesteps per epoch:', batches_validate, ')')
 
         def batch_generator(__img, __gt):
             """
@@ -295,46 +281,45 @@ class CnnModel:
         validate_data = (validate_patches, validate_labels)
 
         # Reduce learning rate iff validation accuracy not improving for 2 epochs
-        lr_callback = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=2,
+        lr_callback = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=5,
                                         verbose=1, mode='auto', min_delta=1e-2, cooldown=0, min_lr=0)
         
         # Stop training early iff validation accuracy not improving for 5 epochs
-        stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=0.001, patience=5, verbose=1,
+        stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=0.001, patience=11, verbose=1,
                                       mode='auto')
 
         # Enable Tensorboard logging with graphs, gradients, images and historgrams
         tensorboard = TensorBoard(log_dir='./logs',
-                                  histogram_freq=1,
+                                  histogram_freq=0,
                                   batch_size=batch_size,
                                   write_graph=True,
-                                  write_grads=True,
-                                  write_images=True,
+                                  write_grads=False,
+                                  write_images=False,
                                   embeddings_freq=0,
                                   embeddings_layer_names=None,
                                   embeddings_metadata=None)
 
-        # Hacky Tensorboard wrapper to
+        # Hacky Tensorboard wrapper
         tensorboard_hack = TensorBoardWrapper(validate_data,
                                               nb_steps=batches_validate,
                                               log_dir='./logs',
                                               histogram_freq=1,
                                               batch_size=batch_size,
                                               write_graph=True,
-                                              write_grads=True,
+                                              write_grads=False,
                                               write_images=False)  # Visualizations of layers where applicable, not superbly useful
 
         # Save the model's state on each epoch, given the epoch has better fitness
         filepath = "weights-{epoch:03d}-{val_binary_accuracy:.4f}.hdf5"
         checkpointer = ModelCheckpoint(filepath=filepath,
-                                       monitor='val_binary_accuracy',  # TODO: Validation accurary not logged correctly
+                                       monitor='val_binary_accuracy',
                                        verbose=1,
                                        save_best_only=False,
                                        period=1)
 
-        opt = Adam(lr=1e-4)
         self.model.compile(loss=losses.binary_crossentropy,
-                           optimizer=opt,
-                           metrics=[metrics.binary_accuracy])#, metrics.binary_crossentropy])
+                           optimizer=Adam(lr=1e-4),
+                           metrics=[metrics.binary_accuracy])
 
         try:
             self.model.fit_generator(
@@ -342,10 +327,13 @@ class CnnModel:
                 steps_per_epoch=batches_train,
                 epochs=nb_epoch,
                 verbose=1,
-                callbacks=[tensorboard_hack, checkpointer, lr_callback, stop_callback],
-                shuffle=True,
-                validation_data=validate_data)
-                # validation_steps=batches_validate)
+                # callbacks=[tensorboard_hack, checkpointer, lr_callback, stop_callback],
+                callbacks=[tensorboard, checkpointer, lr_callback, stop_callback],
+                # validation_data=validate_data,
+                validation_data=batch_generator(images_validate, groundtruth_validate),
+                validation_steps=batches_validate,
+                use_multiprocessing=True,
+                shuffle=True)
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass
@@ -457,14 +445,10 @@ class TensorBoardWrapper(TensorBoard):
         self.nb_steps = nb_steps      # Number of batches
 
     def on_epoch_end(self, epoch, logs):
-        # Fill in the `validation_data` property. Obviously this is specific to how your generator works.
-        # Below is an example that yields images and classification tags.
-        # After it's filled in, the regular on_epoch_end method has access to the validation_data.
         imgs, tags = None, None
         for s in range(self.nb_steps):
             ib = self.val_data[0][s * self.batch_size: (s + 1) * self.batch_size]
             tb = self.val_data[1][s * self.batch_size: (s + 1) * self.batch_size]
-            # ib, tb = next(self.batch_gen)
             if imgs is None and tags is None:
                 imgs = np.zeros((self.nb_steps * ib.shape[0], *ib.shape[1:]), dtype=np.float32)
                 tags = np.zeros((self.nb_steps * tb.shape[0], *tb.shape[1:]), dtype=np.float32)
