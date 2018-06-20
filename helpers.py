@@ -178,5 +178,9 @@ def predict_on_images(path, model, submission_filename):
         image_filenames.extend(filenames)
         break
 
-    image_filenames = sorted(image_filenames)
-    generate_submission(model, submission_filename, *image_filenames)
+    image_paths = []
+    for file in image_filenames:
+        image_paths.append(os.path.join(path, file))
+
+    image_paths = sorted(image_paths)
+    generate_submission(model, submission_filename, *image_paths)

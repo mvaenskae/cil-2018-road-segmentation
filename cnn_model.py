@@ -285,7 +285,7 @@ class CnnModel:
                                         verbose=1, mode='auto', min_delta=1e-2, cooldown=0, min_lr=0)
         
         # Stop training early iff validation accuracy not improving for 5 epochs
-        stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=0.001, patience=11, verbose=1,
+        stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=1e-3, patience=11, verbose=1,
                                       mode='auto')
 
         # Enable Tensorboard logging with graphs, gradients, images and historgrams
