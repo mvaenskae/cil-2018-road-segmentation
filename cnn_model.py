@@ -22,7 +22,7 @@ resnet_repetitions_extra = [3, 8, 36, 3]
 
 class CnnModel:
     FULL_PREACTIVATION = True
-    RELU_VERSION = None
+    RELU_VERSION = 'parametric'
     LEAKY_RELU_ALPHA = 0.01
     DATA_FORMAT = 'channels_first'
 
@@ -199,7 +199,7 @@ class CnnModel:
         x = resnet_stem(x)
         for i, layers in enumerate(RESNET_REPETITIONS):
             for j in range(layers):
-                x = resnet_bottleneck(x, RESNET_FEATURES[i], (j == 0))
+                x = resnet_vanilla(x, RESNET_FEATURES[i], (j == 0))
 
         x = _flatten(x)
         x = _dense(x, 2 * ((self.context * self.context) // (self.patch_size * self.patch_size)))
