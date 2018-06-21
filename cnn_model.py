@@ -21,7 +21,7 @@ resnet_repetitions_large = [3, 4, 23, 3]
 resnet_repetitions_extra = [3, 8, 36, 3]
 
 class CnnModel:
-    FULL_PREACTIVATION = True
+    FULL_PREACTIVATION = False
     RELU_VERSION = 'parametric'
     LEAKY_RELU_ALPHA = 0.01
     DATA_FORMAT = 'channels_first'
@@ -41,7 +41,7 @@ class CnnModel:
         padding = self.padding
         nb_classes = 2
         RESNET_FEATURES = resnet_features
-        RESNET_REPETITIONS = resnet_repetitions_normal
+        RESNET_REPETITIONS = resnet_repetitions_small
 
         # Compatibility with Theano and Tensorflow ordering
         if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
@@ -211,7 +211,7 @@ class CnnModel:
         x = _dense(x, 2 * ((self.context * self.context) // (self.patch_size * self.patch_size)))
         x = _act_fun(x)
         x = _dense(x, nb_classes)
-        x = Activation('softmax')(x)
+        x = Activation('sigmoid')(x)  # Returns a logit
         self.model = Model(input=input_tensor, outputs=x)
 
     def train(self, epochs):
@@ -397,7 +397,7 @@ class CnnModel:
             return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
 
         self.model.compile(loss=losses.binary_crossentropy,
-                           optimizer=Adam(lr=1e-4),
+                           optimizer=Nadam(lr=1e-4),
                            metrics=[metrics.binary_accuracy, mcor, f1])
 
         try:
