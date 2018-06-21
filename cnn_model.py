@@ -3,8 +3,8 @@
 from keras.models import Model
 from keras.layers import Dense, Activation, Flatten
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
-from keras.layers.advanced_activations import LeakyReLU, PReLU
-from keras.layers import Input, merge
+from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
+from keras.layers import Input, Add
 from keras.optimizers import Adam
 from keras import losses
 from keras import metrics
@@ -14,12 +14,17 @@ from keras.callbacks import ReduceLROnPlateau, EarlyStopping, TensorBoard, Model
 from keras.utils import Sequence
 from helpers import *
 
+resnet_features = [64, 128, 256, 512]
+resnet_repetitions_small = [2, 2, 2, 2]
+resnet_repetitions_normal = [3, 4, 6, 3]
+resnet_repetitions_large = [3, 4, 23, 3]
+resnet_repetitions_extra = [3, 8, 36, 3]
+
 class CnnModel:
-    FULL_PREACTIVATION = False
-    USE_LEAKY_RELU = False
+    FULL_PREACTIVATION = True
+    RELU_VERSION = None
     LEAKY_RELU_ALPHA = 0.01
     DATA_FORMAT = 'channels_first'
-    REG_FACTOR = 1e-6  # L2 regularization factor (used on weights, but not biases)
 
     def __init__(self):
         """ Construct a CNN classifier. """
@@ -28,15 +33,15 @@ class CnnModel:
         self.padding = (self.context - self.patch_size) // 2
         self.model = None
         self.initialize()
-        
+
     def initialize(self):
         """ Initialize or reset this model. """
         patch_size = self.patch_size
         window_size = self.context
         padding = self.padding
         nb_classes = 2
-        RESNET_FEATURES = [64, 128, 256, 512]
-        RESNET_REPETITIONS = [2, 2, 2, 2]
+        RESNET_FEATURES = resnet_features
+        RESNET_REPETITIONS = resnet_repetitions_normal
 
         # Compatibility with Theano and Tensorflow ordering
         if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
@@ -80,16 +85,18 @@ class CnnModel:
                 gamma_constraint=None
             )(_input)
 
-        def _act_fun(_input, use_leaky=CnnModel.USE_LEAKY_RELU):
-            if use_leaky:
+        def _act_fun(_input, relu_version=CnnModel.RELU_VERSION):
+            if relu_version == 'leaky':
                 return LeakyReLU(alpha=CnnModel.LEAKY_RELU_ALPHA)(_input)
-            else:
+            elif relu_version == 'parametric':
                 # return ReLU()
                 return PReLU(
                     alpha_initializer='zeros',
                     alpha_regularizer=None,
                     alpha_constraint=None,
                     shared_axes=None)(_input)
+            else:
+                return ReLU()(_input)
 
         def _max_pool(_input, pool=(2, 2), strides=(2, 2), padding='same'):
             return MaxPooling2D(
@@ -170,7 +177,21 @@ class CnnModel:
             else:
                 shortcut = _input
                 residual = _vanilla_branch(_input, filters, strides=(1, 1))
-            res = merge([shortcut, residual], mode='sum')
+            res = Add()([shortcut, residual])
+            return res
+
+        def resnet_bottleneck(_input, filters, is_first=False):
+            if is_first:
+                if filters == 64:
+                    strides = 1
+                else:
+                    strides = 2
+                shortcut = _shortcut(_input, filters, strides, True)
+                residual = _bottleneck_branch(_input, filters, strides)
+            else:
+                shortcut = _input
+                residual = _bottleneck_branch(_input, filters, strides=(1, 1))
+            res = Add()([shortcut, residual])
             return res
 
         input_tensor = Input(shape=input_shape)
@@ -178,10 +199,10 @@ class CnnModel:
         x = resnet_stem(x)
         for i, layers in enumerate(RESNET_REPETITIONS):
             for j in range(layers):
-                x = resnet_vanilla(x, RESNET_FEATURES[i], (j == 0))
+                x = resnet_bottleneck(x, RESNET_FEATURES[i], (j == 0))
 
         x = _flatten(x)
-        x = _dense(x, (self.context * self.context) // (self.patch_size * self.patch_size))
+        x = _dense(x, 2 * ((self.context * self.context) // (self.patch_size * self.patch_size)))
         x = _act_fun(x)
         x = _dense(x, nb_classes)
         x = Activation('softmax')(x)
@@ -283,7 +304,7 @@ class CnnModel:
         # Reduce learning rate iff validation accuracy not improving for 2 epochs
         lr_callback = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=5,
                                         verbose=1, mode='auto', min_delta=1e-2, cooldown=0, min_lr=0)
-        
+
         # Stop training early iff validation accuracy not improving for 5 epochs
         stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=1e-3, patience=11, verbose=1,
                                       mode='auto')
@@ -317,9 +338,61 @@ class CnnModel:
                                        save_best_only=False,
                                        period=1)
 
+        # The following functions have been copied from
+        # https://github.com/keras-team/keras/issues/5400#issuecomment-314747992
+        def mcor(y_true, y_pred):
+            # matthews_correlation
+            y_pred_pos = K.round(K.clip(y_pred, 0, 1))
+            y_pred_neg = 1 - y_pred_pos
+
+            y_pos = K.round(K.clip(y_true, 0, 1))
+            y_neg = 1 - y_pos
+
+            tp = K.sum(y_pos * y_pred_pos)
+            tn = K.sum(y_neg * y_pred_neg)
+
+            fp = K.sum(y_neg * y_pred_pos)
+            fn = K.sum(y_pos * y_pred_neg)
+
+            numerator = (tp * tn - fp * fn)
+            denominator = K.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+
+            return numerator / (denominator + K.epsilon())
+
+        def f1(y_true, y_pred):
+            def recall(y_true, y_pred):
+                """Recall metric.
+
+                Only computes a batch-wise average of recall.
+
+                Computes the recall, a metric for multi-label classification of
+                how many relevant items are selected.
+                """
+                true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+                possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+                recall = true_positives / (possible_positives + K.epsilon())
+                return recall
+
+            def precision(y_true, y_pred):
+                """Precision metric.
+
+                Only computes a batch-wise average of precision.
+
+                Computes the precision, a metric for multi-label classification of
+                how many selected items are relevant.
+                """
+                true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+                predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+                precision = true_positives / (predicted_positives + K.epsilon())
+                return precision
+
+            precision = precision(y_true, y_pred)
+            recall = recall(y_true, y_pred)
+            return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
+
         self.model.compile(loss=losses.binary_crossentropy,
                            optimizer=Adam(lr=1e-4),
-                           metrics=[metrics.binary_accuracy])
+                           metrics=[metrics.binary_accuracy, mcor, f1])
 
         try:
             self.model.fit_generator(
@@ -339,15 +412,15 @@ class CnnModel:
             pass
 
         print('Training completed')
-        
+
     def save(self, filename):
         """ Save the weights of this model. """
         self.model.save_weights(filename)
-        
+
     def load(self, filename):
         """ Load the weights for this model from a file. """
         self.model.load_weights(filename)
-        
+
     def classify(self, X):
         """
         Classify an unseen set of samples.
@@ -356,14 +429,14 @@ class CnnModel:
         """
         # Subdivide the images into blocks
         img_patches = create_patches(X, self.patch_size, 16, self.padding)
-        
+
         if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
             img_patches = np.rollaxis(img_patches, 3, 1)
-        
+
         # Run prediction
         Z = self.model.predict(img_patches)
         Z = (Z[:,0] < Z[:,1]) * 1
-        
+
         # Regroup patches into images
         return group_patches(Z, X.shape[0])
 
