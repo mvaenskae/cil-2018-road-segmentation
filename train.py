@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import numpy
 from cnn_model import CnnModel
 

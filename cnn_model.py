@@ -68,10 +68,15 @@ class CnnModel:
                 bias_constraint=None
             )(_input)
 
-        def _batch_norm(_input, dense):
+        def _batch_norm(_input, axis=1):
             # https://github.com/keras-team/keras/issues/1921#issuecomment-193837813
+            # DO NOT TOUCH: We either use this after convolutions but use NCHW. As such we want to normalize on the
+            #               features in the channels --> axis=1
+            #               Else axis=1 is for our networks correct in that we use it AFTER flattening a 4D tensor into
+            #               a 2D version. There the features are also on axis=1
+            # In conclusion: You touch this---I will end you rightly *unscrews pommel*
             return BatchNormalization(
-                axis=1 if not dense else -1,  # Normalize over last axis in dense, else channel-wise for _conv2d
+                axis=axis,
                 momentum=0.99,
                 epsilon=0.001,
                 center=True,
@@ -129,7 +134,7 @@ class CnnModel:
             x = x_orig
             if not self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
-            x = _batch_norm(x, False)
+            x = _batch_norm(x)
             x = _act_fun(x)
             if self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)

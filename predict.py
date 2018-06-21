@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 from cnn_model import CnnModel
 from helpers import *
 import datetime
