@@ -5,7 +5,7 @@ from keras.layers import Dense, Activation, Flatten
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
 from keras.layers import Input, Add
-from keras.optimizers import Adam
+from keras.optimizers import Adam, Nadam, SGD
 from keras import losses
 from keras import metrics
 from keras.utils import np_utils
@@ -68,9 +68,10 @@ class CnnModel:
                 bias_constraint=None
             )(_input)
 
-        def _batch_norm(_input):
+        def _batch_norm(_input, dense):
+            # https://github.com/keras-team/keras/issues/1921#issuecomment-193837813
             return BatchNormalization(
-                axis=-1,
+                axis=1 if not dense else -1,  # Normalize over last axis in dense, else channel-wise for _conv2d
                 momentum=0.99,
                 epsilon=0.001,
                 center=True,
@@ -89,12 +90,12 @@ class CnnModel:
             if relu_version == 'leaky':
                 return LeakyReLU(alpha=CnnModel.LEAKY_RELU_ALPHA)(_input)
             elif relu_version == 'parametric':
-                # return ReLU()
                 return PReLU(
                     alpha_initializer='zeros',
                     alpha_regularizer=None,
                     alpha_constraint=None,
-                    shared_axes=None)(_input)
+                    shared_axes=None  # Use channel-wise which is reportedly giving better performance than being shared
+                )(_input)
             else:
                 return ReLU()(_input)
 
@@ -128,7 +129,7 @@ class CnnModel:
             x = x_orig
             if not self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
-            x = _batch_norm(x)
+            x = _batch_norm(x, False)
             x = _act_fun(x)
             if self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
@@ -213,7 +214,7 @@ class CnnModel:
         Train this model with the given dataset.
         """
         seed = 42
-        randomness = np.random.seed(seed)
+        np.random.seed(seed)
         batch_size = 16
         nb_classes = 2
         nb_epoch = epochs
@@ -301,13 +302,13 @@ class CnnModel:
         validate_labels = np.reshape(np.asarray(validate_labels), (batches_validate * batch_size, 2))
         validate_data = (validate_patches, validate_labels)
 
-        # Reduce learning rate iff validation accuracy not improving for 2 epochs
-        lr_callback = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=5,
-                                        verbose=1, mode='auto', min_delta=1e-2, cooldown=0, min_lr=0)
+        # Reduce learning rate iff validation accuracy not improving
+        reduce_lr_on_plateau = ReduceLROnPlateau(monitor='val_binary_accuracy', factor=0.1, patience=5, verbose=1,
+                                                 mode='auto', min_delta=1e-3, cooldown=0, min_lr=1e-8)
 
-        # Stop training early iff validation accuracy not improving for 5 epochs
-        stop_callback = EarlyStopping(monitor='val_binary_accuracy', min_delta=1e-3, patience=11, verbose=1,
-                                      mode='auto')
+        # Stop training early iff validation accuracy not improving
+        early_stopping = EarlyStopping(monitor='val_binary_accuracy', min_delta=1e-3, patience=11, verbose=1,
+                                       mode='auto')
 
         # Enable Tensorboard logging with graphs, gradients, images and historgrams
         tensorboard = TensorBoard(log_dir='./logs',
@@ -400,8 +401,8 @@ class CnnModel:
                 steps_per_epoch=batches_train,
                 epochs=nb_epoch,
                 verbose=1,
-                # callbacks=[tensorboard_hack, checkpointer, lr_callback, stop_callback],
-                callbacks=[tensorboard, checkpointer, lr_callback, stop_callback],
+                # callbacks=[tensorboard_hack, checkpointer, reduce_lr_on_plateau, early_stopping],
+                callbacks=[tensorboard, checkpointer, reduce_lr_on_plateau, early_stopping],
                 # validation_data=validate_data,
                 validation_data=batch_generator(images_validate, groundtruth_validate),
                 validation_steps=batches_validate,
