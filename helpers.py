@@ -2,6 +2,7 @@
 
 import matplotlib.image as mpimg
 import numpy as np
+from imgaug import augmenters as iaa
 import re
 import os
 
@@ -184,3 +185,52 @@ def predict_on_images(path, model, submission_filename):
 
     image_paths = sorted(image_paths)
     generate_submission(model, submission_filename, *image_paths)
+
+
+def img_float_to_uint8(img):
+    rimg = img - np.min(img)
+    rimg = (rimg / np.max(rimg) * 255).round().astype(np.uint8)
+    return rimg
+
+
+def epoch_augmentation(__data, __ground_truth, padding):
+    MAX = 2*padding
+    assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
+    assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
+
+    offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
+    padding = iaa.Pad(
+        px=(offset_y, offset_x, MAX - offset_y, MAX - offset_x),
+        pad_mode=["reflect"],
+        keep_size=False
+    )
+    affine = iaa.Affine(
+        rotate=(-180, 180),
+        shear=(-5, 5),
+        scale=(0.9, 1.1),
+        mode=["reflect"]
+    )
+    augment_both = iaa.Sequential(
+        [
+            padding,                    # Pad the image to requested padding
+            iaa.Sometimes(0.3, affine)  # Apply sometimes more interesting augmentations
+        ],
+        random_order=False
+    ).to_deterministic()
+
+    augment_image = iaa.Sequential(
+        iaa.SomeOf((0, None), [                     # Run up to all operations
+            iaa.ContrastNormalization((0.8, 1.2)),  # Contrast modifications
+            iaa.Multiply((0.8, 1.2)),               # Brightness modifications
+            iaa.Dropout(0.01),                      # Drop out single pixels
+            iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
+        ], random_order=True)                       # Randomize the order of operations
+    ).to_deterministic()
+
+    __data = img_float_to_uint8(__data)
+    aug_image = augment_both.augment_image(__data)
+    aug_ground_truth = augment_both.augment_image(__ground_truth)
+    aug_image = augment_image.augment_image(aug_image)
+    aug_image = aug_image / 255.0
+
+    return aug_image, aug_ground_truth
