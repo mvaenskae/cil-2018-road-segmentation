@@ -408,6 +408,13 @@ class BasicLayers(object):
     def _spatialdropout(self, _input, rate=0.25):
         return SpatialDropout2D(rate=rate, data_format=self.DATA_FORMAT)(_input)
 
+    def cbr(self, _input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same'):
+        x = _input
+        x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
+        x = self._batch_norm(x)
+        x = self._act_fun(x)
+        return x
+
 
 class ResNetLayers(BasicLayers):
     """

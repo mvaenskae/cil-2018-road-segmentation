@@ -1,0 +1,50 @@
+from cnn_model import *
+from keras.layers import Activation, Concatenate
+
+class Inceptuous(CnnModel):
+    def __init__(self, model_name):
+        super().__init__()
+        self.MODEL_NAME = model_name
+
+    def build_model(self):
+        layers = BasicLayers(relu_version='parametric')
+
+        input_tensor = Input(shape=self.INPUT_SHAPE)
+        x = input_tensor
+        x = layers.cbr(x, 32, kernel_size=(3, 3), strides=(2, 2), dilation_rate=(1, 1), padding='same')
+        # Half-size, 32 features
+        x1 = layers.cbr(x, 32, kernel_size=(3, 3), strides=(2, 2), dilation_rate=(1, 1), padding='same')
+        x2 = layers._max_pool(x, pool=(3, 3), strides=(2, 2), padding='same')
+        x = Concatenate(axis=1)([x1, x2])
+        x = layers._spatialdropout(x)
+        # Half-size, 64 features
+        x1 = layers.cbr(x, 64, kernel_size=(1, 1))
+        x1 = layers.cbr(x1, 64, kernel_size=(3, 3), strides=(2, 2))
+        x2 = layers.cbr(x, 64, kernel_size=(1, 1))
+        x2 = layers.cbr(x2, 64, kernel_size=(1, 5))
+        x2 = layers.cbr(x2, 64, kernel_size=(5, 1))
+        x2 = layers.cbr(x2, 64, kernel_size=(3, 3), strides=(2, 2))
+        x = Concatenate(axis=1)([x1, x2])
+        x = layers._spatialdropout(x)
+        # Half-size, 128 features
+        x1 = layers.cbr(x, 128, kernel_size=(3, 3), strides=(2, 2))
+        x2 = layers._max_pool(x, pool=(3, 3))
+        x = Concatenate(axis=1)([x1, x2])
+        x = layers._spatialdropout(x)
+        # Half-size, 256 features
+        x1 = layers.cbr(x, 256, kernel_size=(1, 1))
+        x1 = layers.cbr(x1, 256, kernel_size=(3, 3), strides=(2, 2))
+        x2 = layers.cbr(x, 256, kernel_size=(1, 1))
+        x2 = layers.cbr(x2, 256, kernel_size=(1, 3))
+        x2 = layers.cbr(x2, 256, kernel_size=(3, 1))
+        x2 = layers.cbr(x2, 256, kernel_size=(3, 3), strides=(2, 2))
+        x = Concatenate(axis=1)([x1, x2])
+        x = layers._spatialdropout(x)
+        # Half-size, 512 features
+
+        x = layers._flatten(x)
+        x = layers._dense(x, 2 * ((self.CONTEXT * self.CONTEXT) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = layers._act_fun(x)
+        x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Activation('softmax')(x)  # No logit anymore
+        self.model = Model(inputs=input_tensor, outputs=x)

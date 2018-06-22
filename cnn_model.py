@@ -78,9 +78,6 @@ class CnnModel:
                                         batches_validate)
         training_data = ImageSequence(images_train, groundtruth_train, images_train, groundtruth_train, self.BATCH_SIZE,
                                       self.NB_CLASSES, self.CONTEXT, self.PATCH_SIZE, batches_train)
-        # TODO: Rethink first call here, may be bad... but for now be defensive
-        validation_data.on_epoch_end()
-        training_data.on_epoch_end()
 
         # Reduce learning rate iff validation accuracy not improving
         reduce_lr_on_plateau = ReduceLROnPlateau(monitor='val_categorical_accuracy', factor=0.1, patience=5, verbose=1,
@@ -119,6 +116,7 @@ class CnnModel:
                                        save_best_only=False,
                                        period=1)
 
+        # Shuffle/augment images at the start of each epoch
         image_shuffler = ImageShuffler(validation_data, training_data)
 
         def softmax_crossentropy_with_logits(y_true, y_pred):
@@ -128,7 +126,7 @@ class CnnModel:
             :param y_pred: Network predictions
             :return: Application of K.categorical_crossentropy()
             """
-            return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=-1)
+            return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
         self.model.compile(loss=softmax_crossentropy_with_logits,
                            optimizer=Nadam(lr=1e-4),
@@ -140,7 +138,6 @@ class CnnModel:
                 steps_per_epoch=batches_train,
                 epochs=nb_epoch,
                 verbose=1,
-                max_queue_size=100,
                 # callbacks=[tensorboard_hack, checkpointer, reduce_lr_on_plateau, early_stopping],
                 callbacks=[tensorboard, checkpointer, reduce_lr_on_plateau, early_stopping, image_shuffler],
                 # validation_data=validate_data,
