@@ -1,9 +1,9 @@
 import numpy as np
 
-from keras.layers import Dense, Flatten
+from keras.layers import Dense, Flatten, Concatenate
 from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, SpatialDropout2D
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
-from keras.layers import Add
+from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
 from keras import backend as K
 from keras.callbacks import TensorBoard, Callback
@@ -324,7 +324,6 @@ class BasicLayers(object):
         self.RELU_VERSION = relu_version
         self.LEAKY_RELU_ALPHA = leaky_relu_alpha
 
-
     def _conv2d(self, _input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same'):
         return Conv2D(
             filters=filters,
@@ -367,10 +366,10 @@ class BasicLayers(object):
             gamma_constraint=None
         )(_input)
 
-    def _act_fun(self, _input, relu_version=RELU_VERSION):
-        if relu_version == 'leaky':
+    def _act_fun(self, _input):
+        if self.RELU_VERSION == 'leaky':
             return LeakyReLU(alpha=self.LEAKY_RELU_ALPHA)(_input)
-        elif relu_version == 'parametric':
+        elif self.RELU_VERSION == 'parametric':
             return PReLU(
                 alpha_initializer='zeros',
                 alpha_regularizer=None,
@@ -520,3 +519,96 @@ class ResNetLayers(BasicLayers):
             residual = self._short_branch(_input, filters, strides=(1, 1))
         res = Add()([shortcut, residual])
         return res
+
+
+class InceptionResNetLayer(BasicLayers):
+    def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+        super().__init__(data_format=data_format, relu_version=relu_version, leaky_relu_alpha=leaky_relu_alpha)
+
+    def stem(self, _input):
+        x = _input
+        x = self.cbr(x, 32, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x = self.cbr(x, 32, kernel_size=(3, 3), padding='valid')
+        x = self.cbr(x, 64, kernel_size=(3, 3))
+        x1 = self.cbr(x, 96, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x2 = self._max_pool(x, pool=(3, 3), strides=(2, 2), padding='valid')
+        x = Concatenate(axis=1)([x1, x2])
+        x1 = self.cbr(x, 64, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 64, kernel_size=(5, 1))
+        x1 = self.cbr(x1, 64, kernel_size=(1, 5))
+        x1 = self.cbr(x1, 96, kernel_size=(3, 3), padding='valid')
+        x2 = self.cbr(x, 64, kernel_size=(1, 1))
+        x2 = self.cbr(x2, 96, kernel_size=(3, 3), padding='valid')
+        x = Concatenate(axis=1)([x1, x2])
+        x1 = self.cbr(x, 192, kernel_size=(3, 1))
+        x1 = self.cbr(x1, 192, kernel_size=(1, 3))
+        x2 = self.cbr(x, 192, kernel_size=(3, 3))
+        x = Concatenate(axis=1)([x1, x2])
+        return x
+
+    def block16(self, _input):
+        x = _input
+        shortcut = x
+        x1 = self.cbr(x, 32, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 48, kernel_size=(3, 3))
+        x1 = self.cbr(x1, 64, kernel_size=(3, 3))
+        x2 = self.cbr(x, 32, kernel_size=(1, 1))
+        x2 = self.cbr(x2, 32, kernel_size=(3, 3))
+        x3 = self.cbr(x, 32, kernel_size=(1, 1))
+        x = Concatenate(axis=1)([x1, x2, x3])
+        x = self._conv2d(x, 384, kernel_size=(1, 1))
+        x = Lambda(lambda l: l * 0.17)(x)
+        x = Add()([x, shortcut])
+        x = self._act_fun(x)
+        return x
+
+    def block7(self, _input):
+        x = _input
+        x1 = self.cbr(x, 256, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 256, kernel_size=(3, 3))
+        x1 = self.cbr(x1, 384, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x2 =  self.cbr(x, 384, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x3 = self._max_pool(x, pool=(3, 3), strides=(2, 2), padding='valid')
+        x = Concatenate(axis=1)([x1, x2, x3])
+        return x
+
+    def block17(self, _input):
+        x = _input
+        shortcut = x
+        x1 = self.cbr(x, 128, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 160, kernel_size=(1, 5))
+        x1 = self.cbr(x1, 192, kernel_size=(5, 1))
+        x2 = self.cbr(x, 192, kernel_size=(1, 1))
+        x = Concatenate(axis=1)([x1, x2])
+        x = self._conv2d(x, K.int_shape(_input)[1], kernel_size=(1, 1))
+        x = Lambda(lambda l: l * 0.1)(x)
+        x = Add()([x, shortcut])
+        x = self._act_fun(x)
+        return x
+
+    def block18(self, _input):
+        x = _input
+        x1 = self.cbr(x, 256, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 288, kernel_size=(3, 3))
+        x1 = self.cbr(x1, 320, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x2 = self.cbr(x, 256, kernel_size=(1, 1))
+        x2 = self.cbr(x2, 288, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x3 = self.cbr(x, 256, kernel_size=(1, 1))
+        x3 = self.cbr(x3, 384, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        x4 = self._max_pool(x, pool=(3, 3), strides=(2, 2), padding='valid')
+        x = Concatenate(axis=1)([x1, x2, x3, x4])
+        return x
+
+    def block19(self, _input):
+        x = _input
+        shortcut = x
+        x1 = self.cbr(x, 192, kernel_size=(1, 1))
+        x1 = self.cbr(x1, 224, kernel_size=(1, 3))
+        x1 = self.cbr(x1, 256, kernel_size=(3, 1))
+        x2 = self.cbr(x, 192, kernel_size=(1, 1))
+        x = Concatenate(axis=1)([x1, x2])
+        x = self._conv2d(x, K.int_shape(_input)[1], kernel_size=(1, 1))
+        x = Lambda(lambda l: l * 0.2)(x)
+        x = Add()([x, shortcut])
+        x = self._act_fun(x)
+        return x

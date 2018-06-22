@@ -48,3 +48,39 @@ class Inceptuous(CnnModel):
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
         x = Activation('softmax')(x)  # No logit anymore
         self.model = Model(inputs=input_tensor, outputs=x)
+
+
+class InceptionResNet(CnnModel):
+    def __init__(self, model_name):
+        super().__init__()
+        self.MODEL_NAME = model_name
+
+    def build_model(self):
+        # incres = InceptionResNetLayer(relu_version='parametric')
+        incres = InceptionResNetLayer()
+        input_tensor = Input(shape=self.INPUT_SHAPE)
+        x = input_tensor
+
+        x = incres.stem(x)
+
+        for i in range(5):
+            x = incres.block16(x)
+
+        x = incres.block7(x)
+        x = incres._act_fun(x)
+
+        for i in range(10):
+            x = incres.block17(x)
+
+        x = incres.block18(x)
+        x = incres._act_fun(x)
+
+        for i in range(5):
+            x = incres.block19(x)
+
+        x = incres._flatten(x)
+        x = incres._dense(x, 2 * ((self.CONTEXT * self.CONTEXT) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = incres._act_fun(x)
+        x = incres._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Activation('softmax')(x)  # No logit anymore
+        self.model = Model(inputs=input_tensor, outputs=x)
