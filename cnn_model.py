@@ -36,9 +36,7 @@ class CnnModel:
 
     def initialize(self):
         """ Initialize or reset this model. """
-        patch_size = self.patch_size
         window_size = self.context
-        padding = self.padding
         nb_classes = 2
         RESNET_FEATURES = resnet_features
         RESNET_REPETITIONS = resnet_repetitions_small
@@ -129,19 +127,17 @@ class CnnModel:
         def _flatten(_input):
             return Flatten(data_format=CnnModel.DATA_FORMAT)(_input)
 
-        def _cbr(_input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same', get_model=False):
-            x_orig = _input
-            x = x_orig
+        def _cbr(_input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same', no_act_fun=False):
+            x = _input
             if not self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
             x = _batch_norm(x)
+            if not self.FULL_PREACTIVATION and no_act_fun:
+                return x
             x = _act_fun(x)
             if self.FULL_PREACTIVATION:
                 x = _conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
-            if get_model:
-                Model(input=x_orig, output=x)
-            else:
-                return x
+            return x
 
         def resnet_stem(_input):
             x = _input
@@ -154,14 +150,19 @@ class CnnModel:
         def _vanilla_branch(_input, filters, strides, dilation=(1, 1)):
             x = _input
             x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation)
-            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
+            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation, no_act_fun=True)
             return x
 
         def _bottleneck_branch(_input, filters, strides, dilation=(1, 1)):
             x = _input
             x = _cbr(x, filters=filters, kernel_size=(1, 1), strides=strides, dilation_rate=dilation)
             x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
-            x = _cbr(x, filters=4*filters, kernel_size=(1, 1), strides=(1, 1), dilation_rate=dilation)
+            x = _cbr(x, filters=4*filters, kernel_size=(1, 1), strides=(1, 1), dilation_rate=dilation, no_act_fun=True)
+            return x
+
+        def _short_branch(_input, filters, strides, dilation=(1, 1)):
+            x = _input
+            x = _cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation, no_act_fun=False)
             return x
 
         def _shortcut(_input, filters, strides=(1, 1), is_bottleneck=False):
@@ -169,7 +170,7 @@ class CnnModel:
             first_filters = filters
             if is_bottleneck:
                 first_filters = 4 * filters
-            x = _cbr(x, first_filters, kernel_size=(1, 1), strides=strides)
+            x = _cbr(x, first_filters, kernel_size=(1, 1), strides=strides, no_act_fun=False)
             return x
 
         def resnet_vanilla(_input, filters, is_first=False):
@@ -200,19 +201,33 @@ class CnnModel:
             res = Add()([shortcut, residual])
             return res
 
+        def resnet_short(_input, filters, is_first=False):
+            if is_first:
+                if filters == 64:
+                    strides = 1
+                else:
+                    strides = 2
+                shortcut = _shortcut(_input, filters, strides)
+                residual = _short_branch(_input, filters, strides)
+            else:
+                shortcut = _input
+                residual = _short_branch(_input, filters, strides=(1, 1))
+            res = Add()([shortcut, residual])
+            return res
+
         input_tensor = Input(shape=input_shape)
         x = input_tensor
         x = resnet_stem(x)
         for i, layers in enumerate(RESNET_REPETITIONS):
             for j in range(layers):
-                x = resnet_vanilla(x, RESNET_FEATURES[i], (j == 0))
+                x = resnet_short(x, RESNET_FEATURES[i], (j == 0))
 
         x = _flatten(x)
         x = _dense(x, 2 * ((self.context * self.context) // (self.patch_size * self.patch_size)))
         x = _act_fun(x)
         x = _dense(x, nb_classes)
         x = Activation('sigmoid')(x)  # Returns a logit
-        self.model = Model(input=input_tensor, outputs=x)
+        self.model = Model(inputs=input_tensor, outputs=x)
 
     def train(self, epochs):
         """
@@ -398,7 +413,7 @@ class CnnModel:
 
         self.model.compile(loss=losses.binary_crossentropy,
                            optimizer=Nadam(lr=1e-4),
-                           metrics=[metrics.binary_accuracy, mcor, f1])
+                           metrics=[mcor, metrics.binary_accuracy])
 
         try:
             self.model.fit_generator(
