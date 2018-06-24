@@ -291,6 +291,8 @@ def epoch_augmentation(__data, __ground_truth, padding):
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
     #assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
 
+    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
+
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
         px=(offset_y, offset_x, MAX - offset_y, MAX - offset_x),
@@ -312,8 +314,8 @@ def epoch_augmentation(__data, __ground_truth, padding):
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
-        iaa.Multiply((0.8, 1.6)),                   # Brightness modifications
-        iaa.ContrastNormalization((0.8, 1.2)),      # Contrast modifications
+        sometimes(iaa.Multiply((1.0, 1.7))),                   # Brightness modifications
+        iaa.ContrastNormalization((1.0, 1.5)),      # Contrast modifications
         iaa.SomeOf((0, None), [                     # Run up to all operations
             iaa.Dropout(0.01),                      # Drop out single pixels
             iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
