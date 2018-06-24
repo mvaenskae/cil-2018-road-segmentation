@@ -2,7 +2,7 @@
 
 from keras.models import Model
 from keras.layers import Input
-from keras.optimizers import Adam, Nadam, SGD
+from keras.optimizers import Adam, SGD
 from keras import losses
 from keras import metrics
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
@@ -13,7 +13,7 @@ class CnnModel:
     """
     Base class for any CNN model.
     """
-    def __init__(self, patch_size=16, context=96, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+    def __init__(self, patch_size=16, context=64, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
         """ Construct a CNN classifier. """
         self.PATCH_SIZE = patch_size
         self.CONTEXT = context
@@ -49,45 +49,59 @@ class CnnModel:
         np.random.seed(seed)
         nb_epoch = epochs
 
-        # Read images from disk
+        # Read images from disk and generate training and validation set
         images, groundtruth = read_images_plus_labels()
-        samples_per_image = images.shape[1] * images.shape[2] // (self.PATCH_SIZE * self.PATCH_SIZE)
-
-        # # Pad images (Apply mirror boundary conditions)
-        # images_padded = np.empty((images.shape[0],
-        #                           images.shape[1] + 2 * self.PADDING, images.shape[2] + 2 * self.PADDING,
-        #                           images.shape[3]))
-        # groundtruth_padded = np.empty((groundtruth.shape[0],
-        #                                 groundtruth.shape[1] + 2 * self.PADDING, groundtruth.shape[2] + 2 * self.PADDING))
-        #
-        # for i in range(images.shape[0]):
-        #     images_padded[i] = pad_image(images[i], self.PADDING)
-        #     groundtruth_padded[i] = pad_image(groundtruth[i], self.PADDING)
-
-        # Generate training and validation set
         images_train, groundtruth_train, images_validate, groundtruth_validate = split_dataset(images, groundtruth, seed)
 
+        # Print some extraneous metrics helpful to users of this template
+        samples_per_image = images.shape[1] * images.shape[2] // (self.PATCH_SIZE * self.PATCH_SIZE)
         batches_train = (images_train.shape[0] * samples_per_image) // self.BATCH_SIZE
         batches_validate = (images_validate.shape[0] * samples_per_image) // self.BATCH_SIZE
 
         print('Dataset shape:', images.shape, '( Train:', images_train.shape[0], '| Validate:', images_validate.shape[0], ')')
         print('Samples per image:', samples_per_image, '( Trainsteps per epoch:', batches_train, '| Validatesteps per epoch:', batches_validate, ')')
 
-        validation_data = ImageSequence(images_validate, groundtruth_validate, images_validate, groundtruth_validate,
-                                        self.BATCH_SIZE, self.NB_CLASSES, self.CONTEXT, self.PATCH_SIZE,
-                                        batches_validate)
-        training_data = ImageSequence(images_train, groundtruth_train, images_train, groundtruth_train, self.BATCH_SIZE,
-                                      self.NB_CLASSES, self.CONTEXT, self.PATCH_SIZE, batches_train)
+        # Generators for image sequences which apply Monte Carlo sampling on them
+        training_data = ImageSequence(images_train, groundtruth_train, self.BATCH_SIZE, self.NB_CLASSES, self.CONTEXT,
+                                      self.PATCH_SIZE, batches_train)
+        validation_data = ImageSequence(images_validate, groundtruth_validate, self.BATCH_SIZE, self.NB_CLASSES,
+                                        self.CONTEXT, self.PATCH_SIZE, batches_validate)
 
-        # Reduce learning rate iff validation accuracy not improving
-        reduce_lr_on_plateau = ReduceLROnPlateau(monitor='val_categorical_accuracy', factor=0.1, patience=5, verbose=1,
-                                                 mode='auto', min_delta=1e-3, cooldown=0, min_lr=1e-8)
+        # Reduce learning rate iff validation average f1 score not improving for AdamOptimizer
+        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_avg_f1',
+                                                      factor=0.1,
+                                                      patience=2,
+                                                      verbose=1,
+                                                      mode='auto',
+                                                      min_delta=1e-2,
+                                                      cooldown=0,
+                                                      min_lr=1e-7)
 
-        # Stop training early iff validation accuracy not improving
-        early_stopping = EarlyStopping(monitor='val_categorical_accuracy', min_delta=1e-3, patience=11, verbose=1,
-                                       mode='auto')
+        # Stop training early iff validation average f1 score not improving for AdamOptimizer
+        early_stopping_adam = EarlyStopping(monitor='val_avg_f1',
+                                            min_delta=1e-3,
+                                            patience=5,
+                                            verbose=1,
+                                            mode='max')
 
-        # Enable Tensorboard logging with graphs, gradients, images and historgrams
+        # Reduce learning rate iff validation average f1 score not improving for SGD
+        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_avg_f1',
+                                                     factor=0.5,
+                                                     patience=5,
+                                                     verbose=1,
+                                                     mode='max',
+                                                     min_delta=1e-4,
+                                                     cooldown=0,
+                                                     min_lr=1e-8)
+
+        # Stop training early iff validation average f1 score not improving for AdamOptimizer
+        early_stopping_sgd = EarlyStopping(monitor='val_avg_f1',
+                                           min_delta=1e-4,
+                                           patience=11,
+                                           verbose=1,
+                                           mode='max')
+
+        # Enable Tensorboard logging and show the graph -- Other options not sensible when using Monte Carlo sampling
         tensorboard = TensorBoard(log_dir='./logs',
                                   histogram_freq=0,
                                   batch_size=self.BATCH_SIZE,
@@ -98,7 +112,7 @@ class CnnModel:
                                   embeddings_layer_names=None,
                                   embeddings_metadata=None)
 
-        # Hacky Tensorboard wrapper
+        # Hacky Tensorboard wrapper if a fixed validation set is given to model.generator_fit and this wrapper
         # tensorboard_hack = TensorBoardWrapper(validate_data,
         #                                       nb_steps=batches_validate,
         #                                       log_dir='./logs',
@@ -106,18 +120,19 @@ class CnnModel:
         #                                       batch_size=batch_size,
         #                                       write_graph=True,
         #                                       write_grads=False,
-        #                                       write_images=False)  # Visualizations of layers where applicable, not superbly useful
+        #                                       write_images=False)
 
         # Save the model's state on each epoch, given the epoch has better fitness
-        filepath = "weights-" + self.MODEL_NAME + "-{epoch:03d}-{val_categorical_accuracy:.4f}.hdf5"
+        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_avg_f1:.4f}.hdf5"
         checkpointer = ModelCheckpoint(filepath=filepath,
-                                       monitor='val_categorical_accuracy',
+                                       monitor='val_avg_f1',
+                                       mode='max',
                                        verbose=1,
-                                       save_best_only=False,
+                                       save_best_only=True,
                                        period=1)
 
         # Shuffle/augment images at the start of each epoch
-        image_shuffler = ImageShuffler(validation_data, training_data)
+        image_shuffler = ImageShuffler(training_data, validation_data)
 
         def softmax_crossentropy_with_logits(y_true, y_pred):
             """
@@ -128,9 +143,15 @@ class CnnModel:
             """
             return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
+        # Define in a list what callbacks and metrics we want included
+        model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
+        model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
+        model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
+                         ExtraMetrics.non_road_f1, ExtraMetrics.avg_f1]
+
         self.model.compile(loss=softmax_crossentropy_with_logits,
-                           optimizer=Nadam(lr=1e-4),
-                           metrics=[ExtraMetrics.mcor, ExtraMetrics.cil_error, metrics.categorical_accuracy])
+                           optimizer=Adam(lr=1e-4),
+                           metrics=model_metrics)
 
         try:
             self.model.fit_generator(
@@ -138,13 +159,27 @@ class CnnModel:
                 steps_per_epoch=batches_train,
                 epochs=nb_epoch,
                 verbose=1,
-                # callbacks=[tensorboard_hack, checkpointer, reduce_lr_on_plateau, early_stopping],
-                callbacks=[tensorboard, checkpointer, reduce_lr_on_plateau, early_stopping, image_shuffler],
-                # validation_data=validate_data,
+                callbacks=model_callbacks_adam,
                 validation_data=validation_data,
                 validation_steps=batches_validate,
-                # shuffle=True,  #Not needed, our generator shuffles everything already
-                use_multiprocessing=False)
+                shuffle=False,  #Not needed, our generator shuffles everything already
+                use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
+
+            # TODO: Generate callback which makes this double-call to the network not required.
+            self.model.compile(loss=softmax_crossentropy_with_logits,
+                               optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
+                               metrics=model_metrics)
+
+            self.model.fit_generator(
+                generator=training_data,
+                steps_per_epoch=batches_train,
+                epochs=nb_epoch,
+                verbose=1,
+                callbacks=model_callbacks_sgd,
+                validation_data=validation_data,
+                validation_steps=batches_validate,
+                shuffle=False,  # Not needed, our generator shuffles everything already
+                use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass

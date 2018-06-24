@@ -94,11 +94,13 @@ class BatchStreamer(object):
 
 class ImageSequence(Sequence):
     """
-    Custom sequencer used in the pipeline to return images in batches.
+    Custom sequencer used in the pipeline to return images in batches by applying Monte Carlo sampling.
     """
-    def __init__(self, x_set, y_set, x_aug, y_aug, batch_size, classes, context_size, patch_size, limit):
+    x_aug = None
+    y_aug = None
+
+    def __init__(self, x_set, y_set, batch_size, classes, context_size, patch_size, limit):
         self.x, self.y = x_set, y_set
-        self.x_aug, self.y_aug = x_aug, y_aug
         self.batch_size = batch_size
         self.classes = classes
         self.context = context_size
@@ -111,52 +113,9 @@ class ImageSequence(Sequence):
         return int(np.ceil(len(self.x) / float(self.batch_size)))
 
     def __getitem__(self, idx):
+        assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
+        assert (self.y_aug is not None), "Ground truth images are not augmented according to requirements."
         return BatchStreamer.monte_carlo_batch(self.x_aug, self.y_aug, self.batch_size, self.context, self.patch_size)
-        # image_set = self.x_aug
-        # label_set = self.y_aug
-        # batch_size = self.batch_size
-        # context_size = self.context
-        # patch_size = self.patch_size
-        #
-        # image_batch = np.empty((batch_size, context_size, context_size, 3))
-        # label_batch = np.empty((batch_size, 2))
-        #
-        # for i in range(batch_size):
-        #     # Select a random image
-        #     idx = np.random.choice(image_set.shape[0])
-        #     shape = image_set[idx].shape
-        #
-        #     # Sample a random window from the image
-        #     center = np.random.randint(context_size // 2, shape[0] - context_size // 2, 2)
-        #     sub_image = image_set[idx][center[0] - context_size // 2:center[0] + context_size // 2,
-        #                 center[1] - context_size // 2:center[1] + context_size // 2]
-        #     gt_sub_image = label_set[idx][
-        #                    center[0] - patch_size // 2:center[0] + patch_size // 2,
-        #                    center[1] - patch_size // 2:center[1] + patch_size // 2]
-        #
-        #     # Random flip
-        #     if np.random.choice(2) == 0:
-        #         # Flip vertically
-        #         sub_image = np.flipud(sub_image)
-        #     if np.random.choice(2) == 0:
-        #         # Flip horizontally
-        #         sub_image = np.fliplr(sub_image)
-        #
-        #     # Random rotation in steps of 90°
-        #     num_rot = np.random.choice(4)
-        #     sub_image = np.rot90(sub_image, num_rot)
-        #
-        #     # The label does not depend on the image rotation/flip (provided that the rotation is in steps of 90°)
-        #     label = np.mean(gt_sub_image) > 0.25
-        #     label = np_utils.to_categorical(label, 2)
-        #
-        #     image_batch[i] = sub_image
-        #     label_batch[i] = label
-        #
-        # if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
-        #     image_batch = np.rollaxis(image_batch, 3, 1)
-        #
-        # return image_batch, label_batch
 
     def __iter__(self):
         return self
@@ -178,6 +137,10 @@ class ImageSequence(Sequence):
 
 
 class ImageShuffler(Callback):
+    """
+    Callback to shuffle/augment unmodified images from ImageSequence and feed the modified versions back to it at the
+    start of each epoch.
+    """
     TRAINING_SET = None
     VALIDATION_SET = None
 
@@ -210,16 +173,21 @@ class ImageShuffler(Callback):
         return augmented_images, augmented_groundtruth
 
     def on_epoch_begin(self, epoch, logs=None):
-        img, gt, padding = self.TRAINING_SET.get_unmodified()
-        img_aug, gt_aug = self.augment_images(img, gt, padding)
-        self.TRAINING_SET.overwrite_augmented(img_aug, gt_aug)
-        img, gt, padding = self.VALIDATION_SET.get_unmodified()
-        img_aug, gt_aug = self.augment_images(img, gt, padding)
-        self.VALIDATION_SET.overwrite_augmented(img_aug, gt_aug)
+        if epoch != 0:  # Try to fix some concurreny issue due to Keras' threading approach
+            img, gt, padding = self.TRAINING_SET.get_unmodified()
+            img_aug, gt_aug = self.augment_images(img, gt, padding)
+            self.TRAINING_SET.overwrite_augmented(img_aug, gt_aug)
+            img, gt, padding = self.VALIDATION_SET.get_unmodified()
+            img_aug, gt_aug = self.augment_images(img, gt, padding)
+            self.VALIDATION_SET.overwrite_augmented(img_aug, gt_aug)
+
+    def on_train_begin(self, logs=None):
+        self.on_epoch_begin(-1)
 
 
 class TensorBoardWrapper(TensorBoard):
     '''Sets the self.validation_data property for use with TensorBoard callback.'''
+    # TODO: Validate for NCHW and if required fix it
     # https://github.com/keras-team/keras/issues/3358#issuecomment-312531958
 
     def __init__(self, val_data, batch_size, nb_steps, **kwargs):
@@ -250,7 +218,12 @@ class ExtraMetrics(object):
     # https://github.com/keras-team/keras/issues/5400#issuecomment-314747992
     @staticmethod
     def mcor(y_true, y_pred):
-        # matthews_correlation
+        """
+        Calculate Matthew's correlation. Not sure if this works with multiclass tensors correctly...
+        :param y_true: True labels
+        :param y_pred: Predicted labels
+        :return: Matthew's correlation
+        """
         y_pred_pos = K.round(K.clip(y_pred, 0, 1))
         y_pred_neg = 1 - y_pred_pos
 
@@ -269,46 +242,97 @@ class ExtraMetrics(object):
         return numerator / (denominator + K.epsilon())
 
     @staticmethod
-    def precision(y_true, y_pred):
-        """Precision metric.
-
-        Only computes a batch-wise average of precision.
-
-        Computes the precision, a metric for multi-label classification of
-        how many selected items are relevant.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
-        precision = true_positives / (predicted_positives + K.epsilon())
-        return precision
-
-    @staticmethod
-    def recall(y_true, y_pred):
-        """Recall metric.
-
-        Only computes a batch-wise average of recall.
-
-        Computes the recall, a metric for multi-label classification of
-        how many relevant items are selected.
-        """
-        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
-        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
-        recall = true_positives / (possible_positives + K.epsilon())
-        return recall
-
-    @staticmethod
-    def f1(y_true, y_pred):
-        precision = ExtraMetrics.precision(y_true, y_pred)
-        recall = ExtraMetrics.recall(y_true, y_pred)
-        return 2 * ((precision * recall) / (precision + recall + K.epsilon()))
-
-    @staticmethod
     def cil_error(y_true, y_pred):
         """Return the error rate based on dense predictions and 1-hot labels."""
         return 100.0 - (100 *
                 K.cast(K.sum(K.cast(K.equal(K.argmax(y_pred, 1), K.argmax(y_true, 1)), 'int32')), 'float32') /
                 K.cast(K.shape(y_pred)[0], 'float32')
         )
+
+    # recall found on: https://stackoverflow.com/a/41717938
+    @staticmethod
+    def recall_class(y_true, y_pred, class_id):
+        """
+        Recall for a specifc class. This is only verified for 2-class one-hot encoding to be working.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :param class_id: Class we want to get recall on (located at [_, class] on the one-hot encoding)
+        :return: Recall for specified class
+        """
+        class_id_true = K.argmax(y_true, axis=-1)
+        class_id_preds = K.argmax(y_pred, axis=-1)
+        mask_positive_self = K.cast(K.equal(class_id_true, class_id), 'int32')
+        true_positive_tensor = K.cast(K.equal(class_id_true, class_id_preds), 'int32') * mask_positive_self
+        class_rec = K.sum(true_positive_tensor) / K.maximum(K.sum(mask_positive_self), 1)
+        return class_rec
+
+    # based on recall some hacky arithmetics and knowledge of only binary classes
+    @staticmethod
+    def precision_class(y_true, y_pred, class_id):
+        """
+        Precision for a specifc class. This is only verified for 2-class one-hot encoding to be working.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :param class_id: Class we want to get recall on (located at [_, class] on the one-hot encoding)
+        :return: Precision for specified class
+        """
+        class_id_true = K.argmax(y_true, axis=-1)
+        class_id_preds = K.argmax(y_pred, axis=-1)
+
+        # Generate maths for predictions for classes true positive labels
+        mask_positive_self = K.cast(K.equal(class_id_true, class_id),
+                                    'int32')  # This is own class true positive plus false negative
+        true_positive_tensor = K.cast(K.equal(class_id_true, class_id_preds), 'int32') * mask_positive_self
+
+        # Generate maths for predictions for other classes false negatives (meaning our false positives)
+        mask_positive_other = K.cast(K.equal(class_id_true, ((class_id - 1) * -1)),
+                                     'int32')  # This is other class true positive plus false negative (so our true negatives and false positives)
+        false_positive_tensor = K.cast(K.not_equal(class_id_true, K.argmin(y_pred, axis=-1)),
+                                       'int32') * mask_positive_other
+
+        # Now we have our true positives and false positives
+        true_positive_count = K.sum(true_positive_tensor)
+        false_positive_count = K.sum(false_positive_tensor)
+        class_precision = true_positive_count / K.maximum((true_positive_count + false_positive_count), 1)
+        return class_precision
+
+    @staticmethod
+    def road_f1(y_true, y_pred):
+        """
+        F1-score for class "road" (aka foreground).
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: F1 score for class "road"
+        """
+        class_id = 1  # Switched due to precision and recall working that way... sorry :(
+        prec = ExtraMetrics.precision_class(y_true, y_pred, class_id)
+        rec = ExtraMetrics.recall_class(y_true, y_pred, class_id)
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
+
+    @staticmethod
+    def non_road_f1(y_true, y_pred):
+        """
+        F1-score for class "non-road" (aka background).
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: F1 score for class "non-road"
+        """
+        class_id = 0  # Switched due to precision and recall working that way... sorry :(
+        prec = ExtraMetrics.precision_class(y_true, y_pred, class_id)
+        rec = ExtraMetrics.recall_class(y_true, y_pred, class_id)
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
+
+    @staticmethod
+    def avg_f1(y_true, y_pred):
+        """
+        Average F1 score for both classes.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: Average F1 score of both classes
+        """
+        f1_road = ExtraMetrics.road_f1(y_true, y_pred)
+        f1_non_road = ExtraMetrics.non_road_f1(y_true, y_pred)
+        return (f1_road + f1_non_road) / 2
 
 
 class BasicLayers(object):
