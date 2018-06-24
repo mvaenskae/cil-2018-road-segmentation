@@ -323,16 +323,43 @@ class ExtraMetrics(object):
         return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
 
     @staticmethod
-    def avg_f1(y_true, y_pred):
+    def macro_f1(y_true, y_pred):
         """
-        Average F1 score for both classes.
+        Macro averaged F1 score for both classes.
         :param y_true: True labels
         :param y_pred: Prediction labels
         :return: Average F1 score of both classes
         """
-        f1_road = ExtraMetrics.road_f1(y_true, y_pred)
-        f1_non_road = ExtraMetrics.non_road_f1(y_true, y_pred)
-        return (f1_road + f1_non_road) / 2
+        prec_road = ExtraMetrics.precision_class(y_true, y_pred, 1)
+        rec_road = ExtraMetrics.recall_class(y_true, y_pred, 1)
+        prec_bg = ExtraMetrics.precision_class(y_true, y_pred, 0)
+        rec_bg = ExtraMetrics.recall_class(y_true, y_pred, 0)
+
+        prec = (prec_road + prec_bg) / 2
+        rec = (rec_road + rec_bg) / 2
+
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
+
+    @staticmethod
+    def micro_f1(y_true, y_pred):
+        """
+        Micro averaged F1 score for both classes.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: Average F1 score of both classes
+        Micro-average of precision = (TP1+TP2)/(TP1+TP2+FP1+FP2) = (12+50)/(12+50+9+23) = 65.96
+        Micro-average of recall = (TP1+TP2)/(TP1+TP2+FN1+FN2) = (12+50)/(12+50+3+9) = 83.78
+        """
+        # TODO: Adjust this for correct calculations, right now calculated macro f1
+        prec_road = ExtraMetrics.precision_class(y_true, y_pred, 1)
+        rec_road = ExtraMetrics.recall_class(y_true, y_pred, 1)
+        prec_bg = ExtraMetrics.precision_class(y_true, y_pred, 0)
+        rec_bg = ExtraMetrics.recall_class(y_true, y_pred, 0)
+
+        prec = (prec_road + prec_bg) / 2
+        rec = (rec_road + rec_bg) / 2
+
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
 
 
 class BasicLayers(object):
