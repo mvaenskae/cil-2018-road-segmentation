@@ -72,7 +72,7 @@ class CnnModel:
                                                       factor=0.1,
                                                       patience=2,
                                                       verbose=1,
-                                                      mode='auto',
+                                                      mode='max',
                                                       min_delta=1e-2,
                                                       cooldown=0,
                                                       min_lr=1e-7)
