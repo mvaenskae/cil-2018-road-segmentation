@@ -4,6 +4,7 @@ import matplotlib.image as mpimg
 import numpy as np
 from imgaug import augmenters as iaa
 from PIL import Image
+from scipy.signal import convolve2d
 import re
 import os
 
@@ -90,11 +91,38 @@ def create_patches_gt(X, patch_size, stride):
 def group_patches(patches, num_images):
     return patches.reshape(num_images, -1)
 
-def get_prediction(model, image, post_processing):
+def post_process_prediction(prediction):
+
+    #filter = np.ones((3,3)) / 9
+    filterh  = np.zeros((3, 3))
+    filterh[1,:] = 1/3
+
+    filterv  = np.zeros((3, 3))
+    filterv[:,1] = 1/3
+
+    filterd  = np.identity(3) / 3
+    filterd2 = np.fliplr(np.identity(3))/3
+
+    filters = (filterh, filterv, filterd, filterd2)
+
+    s = np.zeros((len(filters), prediction.shape[0], prediction.shape[1]))
+
+    cntr = 0
+    for f in filters:
+        s[cntr,:,:] = convolve2d(prediction, f, mode='same', boundary='symm')
+        cntr += 1
+
+    res = s.max(0)
+
+    return res
+
+def get_prediction(model, image, post_process):
 
     image = image.reshape(1, image.shape[0], image.shape[1], image.shape[2])
     prediction = model.classify(image)
-    prediction = prediction.reshape(-1)
+
+    if post_process:
+        prediction = post_process_prediction(prediction)
 
     return prediction
 
@@ -104,7 +132,7 @@ def prediction_to_labels(prediction):
 
     return labels
 
-def mask_to_submission(model, image_filename, post_processing):
+def mask_to_submission(model, image_filename, post_process):
     """
     Generate prediction on image_filename using the model
     :param model: Model used for predictions
@@ -115,8 +143,9 @@ def mask_to_submission(model, image_filename, post_processing):
     img_number = int(re.search(r"\d+", image_filename).group(0))
     image = mpimg.imread(image_filename)
 
-    prediction = get_prediction(model, image, post_processing)
+    prediction = get_prediction(model, image, post_process)
     prediction = prediction_to_labels(prediction)
+    prediction = prediction.reshape(-1)
 
     patch_size = 16
     iter = 0
@@ -128,7 +157,7 @@ def mask_to_submission(model, image_filename, post_processing):
             yield ("{:03d}_{}_{},{}".format(img_number, j, i, label))
 
 
-def generate_submission(model, path, submission_filename, post_processing):
+def generate_submission(model, path, submission_filename, post_process):
     """ Generate a .csv containing the classification of the test set.
     :param path: path to input files
     """
@@ -139,13 +168,14 @@ def generate_submission(model, path, submission_filename, post_processing):
     with open(submission_filename, 'w') as f:
         f.write('id,prediction\n')
         for fn in image_full_names[0:]:
-            f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_processing))
+            f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_process))
 
 def prediction_mask(model, img, post_processing):
     """ Generate a label mask of the same size as the input image """
     input_image_shape = img.shape
     prediction = get_prediction(model, img, post_processing)
     prediction = prediction_to_labels(prediction)
+    prediction = prediction.reshape(-1)
 
     overlay = np.empty((input_image_shape[0], input_image_shape[1]))
 
@@ -168,7 +198,7 @@ def generate_overlay_images(model, path, post_processing):
     filenames = get_files_in_dir(path)
 
     for fn in filenames[0:]:
-        print("Creating overlay for " + image_filename)
+        print("Creating overlay for " + fn)
         input = load_image(os.path.join(path, fn))
         mask = prediction_mask(model, input, post_processing)
 

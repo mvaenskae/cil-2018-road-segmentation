@@ -14,5 +14,5 @@ model.model.summary()
 
 submission_filename = 'submission-' + timestamp + '_' + predict_on + '.csv'
 
-generate_submission(model, 'data/test_images', submission_filename, False)
-generate_overlay_images(model, 'data/test_images', False)
+generate_submission(model, 'data/test_images', submission_filename, True)
+generate_overlay_images(model, 'data/test_images', True)

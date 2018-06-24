@@ -214,4 +214,6 @@ class CnnModel:
 
         Z = group_patches(Z, X.shape[0])
 
+        Z = np.reshape(Z, (int(X.shape[1]/self.PATCH_SIZE), int(X.shape[2]/self.PATCH_SIZE)))
+
         return Z
