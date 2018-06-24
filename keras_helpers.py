@@ -1,7 +1,7 @@
 import numpy as np
 
 from keras.layers import Dense, Flatten, Concatenate
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, SpatialDropout2D
+from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, BatchNormalization, SpatialDropout2D
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
 from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
@@ -367,6 +367,24 @@ class BasicLayers(object):
             bias_constraint=None
         )(_input)
 
+    def _conv2dt(self, _input, filters, kernel_size, strides=(1, 1), padding='same'):
+        return Conv2DTranspose(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=self.DATA_FORMAT,
+            activation=None,
+            use_bias=True,
+            kernel_initializer='glorot_uniform',
+            bias_initializer='zeros',
+            kernel_regularizer=None,
+            bias_regularizer=None,
+            activity_regularizer=None,
+            kernel_constraint=None,
+            bias_constraint=None
+        )(_input)
+
     def _batch_norm(self, _input, axis=1):
         # https://github.com/keras-team/keras/issues/1921#issuecomment-193837813
         # DO NOT TOUCH: We either use this after convolutions but use NCHW. As such we want to normalize on the
@@ -461,11 +479,23 @@ class ResNetLayers(BasicLayers):
         if not self.FULL_PREACTIVATION:
             x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
         x = self._batch_norm(x)
-        if not self.FULL_PREACTIVATION and no_act_fun:
-            return x
+        # if not self.FULL_PREACTIVATION and no_act_fun:
+        #     return x
         x = self._act_fun(x)
         if self.FULL_PREACTIVATION:
             x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
+        return x
+
+    def _tcbr(self, _input, filters, kernel_size, strides=(1, 1), padding='same', no_act_fun=False):
+        x = _input
+        if not self.FULL_PREACTIVATION:
+            x = self._conv2dt(x, filters, kernel_size, strides, padding)
+        x = self._batch_norm(x)
+        # if not self.FULL_PREACTIVATION and no_act_fun:
+        #     return x
+        x = self._act_fun(x)
+        if self.FULL_PREACTIVATION:
+            x = self._conv2dt(x, filters, kernel_size, strides, padding)
         return x
 
     def stem(self, _input):

@@ -13,7 +13,7 @@ class CnnModel:
     """
     Base class for any CNN model.
     """
-    def __init__(self, patch_size=16, context=64, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+    def __init__(self, patch_size=16, context=112, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
         """ Construct a CNN classifier. """
         self.PATCH_SIZE = patch_size
         self.CONTEXT = context
