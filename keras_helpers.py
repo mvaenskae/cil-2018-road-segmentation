@@ -1,7 +1,7 @@
 import numpy as np
 
 from keras.layers import Dense, Flatten, Concatenate
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, SpatialDropout2D, Dropout
+from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, BatchNormalization, SpatialDropout2D, Dropout
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
 from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
@@ -323,16 +323,43 @@ class ExtraMetrics(object):
         return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
 
     @staticmethod
-    def avg_f1(y_true, y_pred):
+    def macro_f1(y_true, y_pred):
         """
-        Average F1 score for both classes.
+        Macro averaged F1 score for both classes.
         :param y_true: True labels
         :param y_pred: Prediction labels
         :return: Average F1 score of both classes
         """
-        f1_road = ExtraMetrics.road_f1(y_true, y_pred)
-        f1_non_road = ExtraMetrics.non_road_f1(y_true, y_pred)
-        return (f1_road + f1_non_road) / 2
+        prec_road = ExtraMetrics.precision_class(y_true, y_pred, 1)
+        rec_road = ExtraMetrics.recall_class(y_true, y_pred, 1)
+        prec_bg = ExtraMetrics.precision_class(y_true, y_pred, 0)
+        rec_bg = ExtraMetrics.recall_class(y_true, y_pred, 0)
+
+        prec = (prec_road + prec_bg) / 2
+        rec = (rec_road + rec_bg) / 2
+
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
+
+    @staticmethod
+    def micro_f1(y_true, y_pred):
+        """
+        Micro averaged F1 score for both classes.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: Average F1 score of both classes
+        Micro-average of precision = (TP1+TP2)/(TP1+TP2+FP1+FP2) = (12+50)/(12+50+9+23) = 65.96
+        Micro-average of recall = (TP1+TP2)/(TP1+TP2+FN1+FN2) = (12+50)/(12+50+3+9) = 83.78
+        """
+        # TODO: Adjust this for correct calculations, right now calculated macro f1
+        prec_road = ExtraMetrics.precision_class(y_true, y_pred, 1)
+        rec_road = ExtraMetrics.recall_class(y_true, y_pred, 1)
+        prec_bg = ExtraMetrics.precision_class(y_true, y_pred, 0)
+        rec_bg = ExtraMetrics.recall_class(y_true, y_pred, 0)
+
+        prec = (prec_road + prec_bg) / 2
+        rec = (rec_road + rec_bg) / 2
+
+        return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
 
 
 class BasicLayers(object):
@@ -356,6 +383,24 @@ class BasicLayers(object):
             padding=padding,
             data_format=self.DATA_FORMAT,
             dilation_rate=dilation_rate,
+            activation=None,
+            use_bias=True,
+            kernel_initializer='glorot_uniform',
+            bias_initializer='zeros',
+            kernel_regularizer=None,
+            bias_regularizer=None,
+            activity_regularizer=None,
+            kernel_constraint=None,
+            bias_constraint=None
+        )(_input)
+
+    def _conv2dt(self, _input, filters, kernel_size, strides=(1, 1), padding='same'):
+        return Conv2DTranspose(
+            filters=filters,
+            kernel_size=kernel_size,
+            strides=strides,
+            padding=padding,
+            data_format=self.DATA_FORMAT,
             activation=None,
             use_bias=True,
             kernel_initializer='glorot_uniform',
@@ -464,11 +509,23 @@ class ResNetLayers(BasicLayers):
         if not self.FULL_PREACTIVATION:
             x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
         x = self._batch_norm(x)
-        if not self.FULL_PREACTIVATION and no_act_fun:
-            return x
+        # if not self.FULL_PREACTIVATION and no_act_fun:
+        #     return x
         x = self._act_fun(x)
         if self.FULL_PREACTIVATION:
             x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
+        return x
+
+    def _tcbr(self, _input, filters, kernel_size, strides=(1, 1), padding='same', no_act_fun=False):
+        x = _input
+        if not self.FULL_PREACTIVATION:
+            x = self._conv2dt(x, filters, kernel_size, strides, padding)
+        x = self._batch_norm(x)
+        # if not self.FULL_PREACTIVATION and no_act_fun:
+        #     return x
+        x = self._act_fun(x)
+        if self.FULL_PREACTIVATION:
+            x = self._conv2dt(x, filters, kernel_size, strides, padding)
         return x
 
     def stem(self, _input):

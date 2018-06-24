@@ -13,7 +13,7 @@ class CnnModel:
     """
     Base class for any CNN model.
     """
-    def __init__(self, patch_size=16, context=64, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+    def __init__(self, patch_size=16, context=112, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
         """ Construct a CNN classifier. """
         self.PATCH_SIZE = patch_size
         self.CONTEXT = context
@@ -68,24 +68,24 @@ class CnnModel:
                                         self.CONTEXT, self.PATCH_SIZE, batches_validate)
 
         # Reduce learning rate iff validation average f1 score not improving for AdamOptimizer
-        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_avg_f1',
+        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_macro_f1',
                                                       factor=0.1,
                                                       patience=2,
                                                       verbose=1,
                                                       mode='max',
-                                                      min_delta=1e-2,
+                                                      min_delta=5e-3,
                                                       cooldown=0,
                                                       min_lr=1e-7)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_adam = EarlyStopping(monitor='val_avg_f1',
-                                            min_delta=1e-3,
+        early_stopping_adam = EarlyStopping(monitor='val_macro_f1',
+                                            min_delta=5e-4,
                                             patience=5,
                                             verbose=1,
                                             mode='max')
 
         # Reduce learning rate iff validation average f1 score not improving for SGD
-        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_avg_f1',
+        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_macro_f1',
                                                      factor=0.5,
                                                      patience=5,
                                                      verbose=1,
@@ -95,7 +95,7 @@ class CnnModel:
                                                      min_lr=1e-8)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_sgd = EarlyStopping(monitor='val_avg_f1',
+        early_stopping_sgd = EarlyStopping(monitor='val_macro_f1',
                                            min_delta=1e-4,
                                            patience=11,
                                            verbose=1,
@@ -123,9 +123,9 @@ class CnnModel:
         #                                       write_images=False)
 
         # Save the model's state on each epoch, given the epoch has better fitness
-        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_avg_f1:.4f}.hdf5"
+        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}.hdf5"
         checkpointer = ModelCheckpoint(filepath=filepath,
-                                       monitor='val_avg_f1',
+                                       monitor='val_macro_f1',
                                        mode='max',
                                        verbose=1,
                                        save_best_only=True,
@@ -147,7 +147,7 @@ class CnnModel:
         model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
         model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
-                         ExtraMetrics.non_road_f1, ExtraMetrics.avg_f1]
+                         ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
 
         self.model.compile(loss=softmax_crossentropy_with_logits,
                            optimizer=Adam(lr=1e-4),

@@ -8,7 +8,9 @@ d = datetime.datetime.utcnow() # <-- get time in UTC
 timestamp = d.isoformat("T") + "Z"
 predict_on = "test_images"
 
-model = InceptionResNet("Inception-ResNet-v2")
+# model = Inceptuous("Inceptuous-opt-test")
+# model = InceptionResNet("Inception-ResNet-v2")
+model = ResNet("ResNet", full_preactivation=False)
 model.load('model_weights.h5')
 model.model.summary()
 
