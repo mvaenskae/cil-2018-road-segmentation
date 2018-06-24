@@ -1,7 +1,7 @@
 import numpy as np
 
 from keras.layers import Dense, Flatten, Concatenate
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, SpatialDropout2D
+from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, SpatialDropout2D, Dropout
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
 from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
@@ -427,6 +427,9 @@ class BasicLayers(object):
 
     def _flatten(self, _input):
         return Flatten(data_format=self.DATA_FORMAT)(_input)
+
+    def _dropout(self, _input, rate=0.25):
+        return Dropout(rate=rate)(_input)
 
     def _spatialdropout(self, _input, rate=0.25):
         return SpatialDropout2D(rate=rate, data_format=self.DATA_FORMAT)(_input)
