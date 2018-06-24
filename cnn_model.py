@@ -198,7 +198,7 @@ class CnnModel:
         """
         Classify a set of samples. This method should be called after successful training and loading of the model.
         :param X: Full-size image which to classify.
-        :return: List of predictions.
+        :return: A list where every element denotes the normalized probability that a sample is road
         """
         # Subdivide the images into blocks
         img_patches = create_patches(X, self.PATCH_SIZE, 16, self.PADDING)
@@ -209,7 +209,9 @@ class CnnModel:
         # Run prediction
         Z = self.model.predict(img_patches)
 
-        Z = (Z[:, 0] < Z[:, 1]) * 1
+        # Normalize probabilities
+        Z = Z[:, 1] / (Z[:, 0] + Z[:, 1])
 
-        # Regroup patches into images
-        return group_patches(Z, X.shape[0])
+        Z = group_patches(Z, X.shape[0])
+
+        return Z

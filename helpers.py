@@ -3,6 +3,7 @@
 import matplotlib.image as mpimg
 import numpy as np
 from imgaug import augmenters as iaa
+from PIL import Image
 import re
 import os
 
@@ -89,8 +90,21 @@ def create_patches_gt(X, patch_size, stride):
 def group_patches(patches, num_images):
     return patches.reshape(num_images, -1)
 
+def get_prediction(model, image, post_processing):
 
-def mask_to_submission(model, image_filename):
+    image = image.reshape(1, image.shape[0], image.shape[1], image.shape[2])
+    prediction = model.classify(image)
+    prediction = prediction.reshape(-1)
+
+    return prediction
+
+def prediction_to_labels(prediction):
+
+    labels = (prediction > 0.5)
+
+    return labels
+
+def mask_to_submission(model, image_filename, post_processing):
     """
     Generate prediction on image_filename using the model
     :param model: Model used for predictions
@@ -100,25 +114,79 @@ def mask_to_submission(model, image_filename):
     """ Reads a single image and outputs the strings that should go into the submission file. """
     img_number = int(re.search(r"\d+", image_filename).group(0))
     image = mpimg.imread(image_filename)
-    image = image.reshape(1, image.shape[0], image.shape[1], image.shape[2])
-    prediction = model.classify(image)
-    prediction = prediction.reshape(-1)
+
+    prediction = get_prediction(model, image, post_processing)
+    prediction = prediction_to_labels(prediction)
+
     patch_size = 16
     iter = 0
     print("Processing " + image_filename)
-    for j in range(0, image.shape[2], patch_size):
-        for i in range(0, image.shape[1], patch_size):
+    for j in range(0, image.shape[1], patch_size):
+        for i in range(0, image.shape[0], patch_size):
             label = int(prediction[iter])
             iter += 1
             yield ("{:03d}_{}_{},{}".format(img_number, j, i, label))
 
 
-def generate_submission(model, submission_filename, *image_filenames):
-    """ Generate a .csv containing the classification of the test set. """
+def generate_submission(model, path, submission_filename, post_processing):
+    """ Generate a .csv containing the classification of the test set.
+    :param path: path to input files
+    """
+
+    filenames = get_files_in_dir(path)
+    image_full_names = prepend_path_to_filenames(path, filenames)
+
     with open(submission_filename, 'w') as f:
         f.write('id,prediction\n')
-        for fn in image_filenames[0:]:
-            f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn))
+        for fn in image_full_names[0:]:
+            f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_processing))
+
+def prediction_mask(model, img, post_processing):
+    """ Generate a label mask of the same size as the input image """
+    input_image_shape = img.shape
+    prediction = get_prediction(model, img, post_processing)
+    prediction = prediction_to_labels(prediction)
+
+    overlay = np.empty((input_image_shape[0], input_image_shape[1]))
+
+    patch_size = 16
+    iter = 0
+    for i in range(0, input_image_shape[1], patch_size):
+        for j in range(0, input_image_shape[0], patch_size):
+            label = int(prediction[iter])
+
+            overlay[j:(j + patch_size), i:(i + patch_size)] = label
+
+            iter += 1
+
+    return overlay
+
+def generate_overlay_images(model, path, post_processing):
+    """ Generate images with the prediction as overlay for easier visualization
+    :param path: input file path
+    """
+    filenames = get_files_in_dir(path)
+
+    for fn in filenames[0:]:
+        print("Creating overlay for " + image_filename)
+        input = load_image(os.path.join(path, fn))
+        mask = prediction_mask(model, input, post_processing)
+
+        output_folder = 'predictions'
+
+        if not os.path.isdir(output_folder):
+            os.mkdir(output_folder)
+
+        color_mask = np.zeros((input.shape[0], input.shape[1], 3), dtype=np.uint8)
+        color_mask[:, :, 0] = mask * 255
+
+        input8 = img_float_to_uint8(input)
+
+        background_img = Image.fromarray(input8, 'RGB').convert("RGBA")
+        overlay_img = Image.fromarray(color_mask, 'RGB').convert("RGBA")
+
+        blended = Image.blend(background_img, overlay_img, 0.2)
+        blended.save(os.path.join(output_folder, fn))
 
 
 def read_images_plus_labels():
@@ -167,24 +235,19 @@ def split_dataset(images, gt_labels, seed):
 
     return np.asarray(img_train), np.asarray(gt_train), np.asarray(img_validate), np.asarray(gt_validate)
 
-
-def predict_on_images(path, model, submission_filename):
-    """
-    Do predictions on images saved in the given path.
-    :param path: Path to images
-    :return: Nothing
-    """
+def get_files_in_dir(dir):
     image_filenames = []
-    for (dirpath, dirnames, filenames) in os.walk(path):
+    for (dirpath, dirnames, filenames) in os.walk(dir):
         image_filenames.extend(filenames)
-        break
 
+    return image_filenames
+
+def prepend_path_to_filenames(path, filenames):
     image_paths = []
-    for file in image_filenames:
+    for file in filenames:
         image_paths.append(os.path.join(path, file))
 
-    image_paths = sorted(image_paths)
-    generate_submission(model, submission_filename, *image_paths)
+    return image_paths
 
 
 def img_float_to_uint8(img):
@@ -196,7 +259,7 @@ def img_float_to_uint8(img):
 def epoch_augmentation(__data, __ground_truth, padding):
     MAX = 2*padding
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
-    assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
+    #assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
 
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
@@ -219,9 +282,9 @@ def epoch_augmentation(__data, __ground_truth, padding):
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
+        iaa.Multiply((0.8, 1.6)),                   # Brightness modifications
+        iaa.ContrastNormalization((0.8, 1.2)),      # Contrast modifications
         iaa.SomeOf((0, None), [                     # Run up to all operations
-            iaa.ContrastNormalization((0.8, 1.2)),  # Contrast modifications
-            iaa.Multiply((0.8, 1.2)),               # Brightness modifications
             iaa.Dropout(0.01),                      # Drop out single pixels
             iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
         ], random_order=True)                       # Randomize the order of operations

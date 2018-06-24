@@ -2,7 +2,7 @@
 
 from jimmy import *
 
-EPOCH_COUNT = 40
+EPOCH_COUNT = 1
 
 model = VEGGG("VEGGG")
 model.model.summary()
