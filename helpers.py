@@ -17,12 +17,12 @@ def load_image(path):
     :return: Read image
     """
     img = mpimg.imread(path)
-    sigma = np.mean(estimate_sigma(img, multichannel=True))
-    patch_kw = dict(patch_size=3,
-                    patch_distance=3,
-                    multichannel=True)
+    #sigma = np.mean(estimate_sigma(img, multichannel=True))
+    #patch_kw = dict(patch_size=3,
+    #                patch_distance=3,
+    #                multichannel=True)
 
-    img = denoise_nl_means(img, h=0.85*sigma, fast_mode=False, **patch_kw)
+    #img = denoise_nl_means(img, h=0.9*sigma, fast_mode=False, **patch_kw)
 
     return img
 
@@ -104,10 +104,14 @@ def post_process_prediction(prediction):
 
     #filter = np.ones((3,3)) / 9
     filterh  = np.zeros((3, 3))
-    filterh[1,:] = 1/3
+    filterh[1,:] = 1/5
+    filterh[0,1] = -1/5
+    filterh[2,1] = -1/5
 
     filterv  = np.zeros((3, 3))
-    filterv[:,1] = 1/3
+    filterv[:,1] = 1/5
+    filterh[1,0] = -1/5
+    filterh[1,2] = -1/5
 
     filterd  = np.identity(3) / 3
     filterd2 = np.fliplr(np.identity(3))/3
@@ -326,9 +330,18 @@ def epoch_augmentation(__data, __ground_truth, padding):
         random_order=False
     ).to_deterministic()
 
+    concrete = iaa.Sequential(
+        [
+            iaa.Multiply((1.5, 1.7)),
+            iaa.ContrastNormalization((1.5, 1.7))
+        ],
+        random_order=False
+    ).to_deterministic()
+
     augment_image = iaa.Sequential(
-        sometimes(iaa.Multiply((1.5, 1.7))),        # Brightness modifications
-        iaa.ContrastNormalization((1.0, 1.5)),      # Contrast modifications
+        sometimes(concrete),                        # To concrete modifications
+        iaa.Multiply((0.9, 1.1)),
+        iaa.ContrastNormalization((0.9, 1.2)),
         iaa.SomeOf((0, None), [                     # Run up to all operations
             iaa.Dropout(0.01),                      # Drop out single pixels
             iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
