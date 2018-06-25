@@ -9,9 +9,10 @@ timestamp = d.isoformat("T") + "Z"
 predict_on = "test_images"
 
 # model = Inceptuous("Inceptuous-opt-test")
-# model = InceptionResNet("Inception-ResNet-v2")
-model = ResNet("ResNet", full_preactivation=False)
+model = InceptionResNet()
+# model = ResNet("ResNet", full_preactivation=False)
 model.load('model_weights.h5')
+# model.load('weights-Inception-ResNet-v2-e014-f1-0.6475.hdf5')
 model.model.summary()
 
 

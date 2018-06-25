@@ -13,18 +13,26 @@ class CnnModel:
     """
     Base class for any CNN model.
     """
-    def __init__(self, patch_size=16, context=112, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+    def __init__(self,
+                 patch_size=16,
+                 context=112,
+                 nb_classes=2,
+                 batch_size=16,
+                 model_name='Base',
+                 data_format='channels_first',
+                 relu_version=None,
+                 leaky_relu_alpha=0.01):
         """ Construct a CNN classifier. """
         self.PATCH_SIZE = patch_size
         self.CONTEXT = context
         self.PADDING = (self.CONTEXT - self.PATCH_SIZE) // 2
-        self.NB_CLASSES = 2
-        self.BATCH_SIZE = 16
+        self.NB_CLASSES = nb_classes
+        self.BATCH_SIZE = batch_size
         self.DATA_FORMAT = data_format
         self.RELU_VERSION = relu_version
         self.LEAKY_RELU_ALPHA = leaky_relu_alpha
+        self.MODEL_NAME = model_name
         self.model = None
-        self.MODEL_NAME = 'Base'
 
         # Compatibility with Theano and Tensorflow ordering
         if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':

@@ -606,11 +606,16 @@ class ResNetLayers(BasicLayers):
 
 
 class InceptionResNetLayer(BasicLayers):
-    def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01):
+
+    HALF_SIZE=False
+
+    def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01, half_size=True):
         super().__init__(data_format=data_format, relu_version=relu_version, leaky_relu_alpha=leaky_relu_alpha)
+        self.HALF_SIZE=half_size
 
     def stem(self, _input):
         x = _input
+        kernel_large = 5 if self.HALF_SIZE else 7
         x = self.cbr(x, 32, kernel_size=(3, 3), strides=(2, 2), padding='valid')
         x = self.cbr(x, 32, kernel_size=(3, 3), padding='valid')
         x = self.cbr(x, 64, kernel_size=(3, 3))
@@ -618,15 +623,19 @@ class InceptionResNetLayer(BasicLayers):
         x2 = self._max_pool(x, pool=(3, 3), strides=(2, 2), padding='valid')
         x = Concatenate(axis=1)([x1, x2])
         x1 = self.cbr(x, 64, kernel_size=(1, 1))
-        x1 = self.cbr(x1, 64, kernel_size=(5, 1))
-        x1 = self.cbr(x1, 64, kernel_size=(1, 5))
+        x1 = self.cbr(x1, 64, kernel_size=(kernel_large, 1))
+        x1 = self.cbr(x1, 64, kernel_size=(1, kernel_large))
         x1 = self.cbr(x1, 96, kernel_size=(3, 3), padding='valid')
         x2 = self.cbr(x, 64, kernel_size=(1, 1))
         x2 = self.cbr(x2, 96, kernel_size=(3, 3), padding='valid')
         x = Concatenate(axis=1)([x1, x2])
-        x1 = self.cbr(x, 192, kernel_size=(3, 1))
-        x1 = self.cbr(x1, 192, kernel_size=(1, 3))
-        x2 = self.cbr(x, 192, kernel_size=(3, 3))
+        if not self.HALF_SIZE:
+            x1 = self._max_pool(x, pool=(3, 3), strides=(2,2), padding='valid')
+            x2 = self.cbr(x, 192, kernel_size=(3, 3), strides=(2, 2), padding='valid')
+        else:
+            x1 = self.cbr(x, 192, kernel_size=(3, 1))
+            x1 = self.cbr(x1, 192, kernel_size=(1, 3))
+            x2 = self.cbr(x, 192, kernel_size=(3, 3))
         x = Concatenate(axis=1)([x1, x2])
         return x
 
@@ -659,9 +668,10 @@ class InceptionResNetLayer(BasicLayers):
     def block17(self, _input):
         x = _input
         shortcut = x
+        kernel_large = 5 if self.HALF_SIZE else 7
         x1 = self.cbr(x, 128, kernel_size=(1, 1))
-        x1 = self.cbr(x1, 160, kernel_size=(1, 5))
-        x1 = self.cbr(x1, 192, kernel_size=(5, 1))
+        x1 = self.cbr(x1, 160, kernel_size=(1, kernel_large))
+        x1 = self.cbr(x1, 192, kernel_size=(kernel_large, 1))
         x2 = self.cbr(x, 192, kernel_size=(1, 1))
         x = Concatenate(axis=1)([x1, x2])
         x = self._conv2d(x, K.int_shape(_input)[1], kernel_size=(1, 1))
