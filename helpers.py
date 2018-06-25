@@ -228,8 +228,12 @@ def read_images_plus_labels():
     image_dir = os.path.join(root_dir, "images")
     gt_dir = os.path.join(root_dir, "groundtruth")
     files = os.listdir(image_dir)
+
+    files.sort()
+
     images_np = np.asarray([load_image(os.path.join(image_dir, file)) for file in files])
     ground_truth_np = np.asarray([load_image(os.path.join(gt_dir, file)) for file in files])
+
     return images_np, ground_truth_np
 
 
@@ -314,7 +318,7 @@ def epoch_augmentation(__data, __ground_truth, padding):
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
-        sometimes(iaa.Multiply((1.0, 1.7))),                   # Brightness modifications
+        sometimes(iaa.Multiply((1.5, 1.8))),        # Brightness modifications
         iaa.ContrastNormalization((1.0, 1.5)),      # Contrast modifications
         iaa.SomeOf((0, None), [                     # Run up to all operations
             iaa.Dropout(0.01),                      # Drop out single pixels
