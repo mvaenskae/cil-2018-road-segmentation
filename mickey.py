@@ -51,13 +51,12 @@ class Inceptuous(CnnModel):
 
 
 class InceptionResNet(CnnModel):
-    def __init__(self, model_name):
-        super().__init__()
-        self.MODEL_NAME = model_name
+    def __init__(self):
+        super().__init__(context=256, batch_size=32, model_name="Inception-ResNet-v2")
 
     def build_model(self):
-        # incres = InceptionResNetLayer(relu_version='parametric')
-        incres = InceptionResNetLayer()
+        incres = InceptionResNetLayer(relu_version='parametric', half_size=False)
+        # incres = InceptionResNetLayer()
         input_tensor = Input(shape=self.INPUT_SHAPE)
         x = input_tensor
 
@@ -77,6 +76,9 @@ class InceptionResNet(CnnModel):
 
         for i in range(5):
             x = incres.block19(x)
+
+        x = incres.cbr(x, 1024, (1, 1))
+        x = incres.cbr(x, 256, (1, 1))
 
         x = incres._flatten(x)
         x = incres._dense(x, 2 * ((self.CONTEXT * self.CONTEXT) // (self.PATCH_SIZE * self.PATCH_SIZE)))
