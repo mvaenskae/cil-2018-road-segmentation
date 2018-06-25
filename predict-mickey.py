@@ -18,4 +18,6 @@ model.model.summary()
 
 submission_filename = 'submission-' + timestamp + '_' + predict_on + '.csv'
 
-predict_on_images(os.path.join("data", predict_on), model, submission_filename)
+post_processing = False
+generate_submission(model, 'data/test_images', submission_filename, post_processing)
+generate_overlay_images(model, 'data/test_images', post_processing)
