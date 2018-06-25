@@ -289,9 +289,7 @@ def img_float_to_uint8(img):
 def epoch_augmentation(__data, __ground_truth, padding):
     MAX = 2*padding
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
-    #assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
-
-    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
+    assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
 
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
@@ -314,9 +312,9 @@ def epoch_augmentation(__data, __ground_truth, padding):
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
-        sometimes(iaa.Multiply((1.0, 1.7))),                   # Brightness modifications
-        iaa.ContrastNormalization((1.0, 1.5)),      # Contrast modifications
         iaa.SomeOf((0, None), [                     # Run up to all operations
+            iaa.ContrastNormalization((0.8, 1.2)),  # Contrast modifications
+            iaa.Multiply((0.8, 1.2)),               # Brightness modifications
             iaa.Dropout(0.01),                      # Drop out single pixels
             iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
         ], random_order=True)                       # Randomize the order of operations
