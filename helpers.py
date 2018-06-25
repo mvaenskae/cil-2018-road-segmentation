@@ -5,6 +5,7 @@ import numpy as np
 from imgaug import augmenters as iaa
 from PIL import Image
 from scipy.signal import convolve2d
+from skimage.restoration import denoise_nl_means, estimate_sigma
 import re
 import os
 
@@ -15,7 +16,15 @@ def load_image(path):
     :param path: Path which should be an image
     :return: Read image
     """
-    return mpimg.imread(path)
+    img = mpimg.imread(path)
+    sigma = np.mean(estimate_sigma(img, multichannel=True))
+    patch_kw = dict(patch_size=3,
+                    patch_distance=3,
+                    multichannel=True)
+
+    img = denoise_nl_means(img, h=0.85*sigma, fast_mode=False, **patch_kw)
+
+    return img
 
 
 def pad_image(image, padding):
@@ -312,13 +321,13 @@ def epoch_augmentation(__data, __ground_truth, padding):
     augment_both = iaa.Sequential(
         [
             padding,                    # Pad the image to requested padding
-            iaa.Sometimes(0.3, affine)  # Apply sometimes more interesting augmentations
+            iaa.Sometimes(0.5, affine)  # Apply sometimes more interesting augmentations
         ],
         random_order=False
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
-        sometimes(iaa.Multiply((1.5, 1.8))),        # Brightness modifications
+        sometimes(iaa.Multiply((1.5, 1.7))),        # Brightness modifications
         iaa.ContrastNormalization((1.0, 1.5)),      # Contrast modifications
         iaa.SomeOf((0, None), [                     # Run up to all operations
             iaa.Dropout(0.01),                      # Drop out single pixels
