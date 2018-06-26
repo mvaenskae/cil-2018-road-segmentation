@@ -17,12 +17,12 @@ def load_image(path):
     :return: Read image
     """
     img = mpimg.imread(path)
-    #sigma = np.mean(estimate_sigma(img, multichannel=True))
-    #patch_kw = dict(patch_size=3,
-    #                patch_distance=3,
-    #                multichannel=True)
+    sigma = np.mean(estimate_sigma(img, multichannel=True))
+    patch_kw = dict(patch_size=3,
+                    patch_distance=3,
+                    multichannel=True)
 
-    #img = denoise_nl_means(img, h=0.9*sigma, fast_mode=False, **patch_kw)
+    img = denoise_nl_means(img, h=0.9*sigma, fast_mode=False, **patch_kw)
 
     return img
 

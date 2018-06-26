@@ -144,8 +144,8 @@ class CnnModel:
             return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
         # Define in a list what callbacks and metrics we want included
-        model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
-        model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
+        model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, image_shuffler]
+        model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, image_shuffler]
         model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
                          ExtraMetrics.non_road_f1, ExtraMetrics.avg_f1]
 

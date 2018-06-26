@@ -1,10 +1,10 @@
 #!/usr/bin/env python
 
-from jimmy import *
+from mickey import *
 
 EPOCH_COUNT = 40
 
-model = Alexa("Alexa")
+model = ResNet("ResNet")
 model.model.summary()
 model.train(EPOCH_COUNT)
-model.save('alexa_weights.h5')
+model.save('resnet_non_stop_smoothed_weights.h5')
