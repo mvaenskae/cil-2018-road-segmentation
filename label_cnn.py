@@ -74,7 +74,7 @@ class LabelCNN(AbstractCNN):
         # Reduce learning rate iff validation average f1 score not improving for AdamOptimizer
         reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_macro_f1',
                                                       factor=0.1,
-                                                      patience=2,
+                                                      patience=5,
                                                       verbose=1,
                                                       mode='max',
                                                       min_delta=5e-3,
@@ -84,7 +84,7 @@ class LabelCNN(AbstractCNN):
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
         early_stopping_adam = EarlyStopping(monitor='val_macro_f1',
                                             min_delta=5e-4,
-                                            patience=5,
+                                            patience=11,
                                             verbose=1,
                                             mode='max')
 

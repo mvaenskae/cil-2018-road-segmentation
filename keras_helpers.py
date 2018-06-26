@@ -634,7 +634,7 @@ class ResNetLayers(BasicLayers):
         x = _input
         x = self._cbr(x, filters=filters, kernel_size=(1, 1))
         x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides)
-        x = self._cbr(x, filters=4 * filters, kernel_size=(1, 1), no_act_fun=True)
+        x = self._cbr(x, filters=filters*4, kernel_size=(1, 1), no_act_fun=True)
         return x
 
     def _short_branch(self, _input, filters, strides=(1, 1)):
@@ -822,13 +822,13 @@ class RedNetLayers(ResNetLayers):
             x = self.residual_up(x, 64, is_last=False)
         return x
 
-    def _vanilla_branch_down(self, _input, filters, strides=(2, 2)):
+    def _vanilla_branch_down(self, _input, filters, strides=(1, 1)):
         x = _input
         x = self._cbr(x, filters=filters*2, kernel_size=(3, 3), strides=strides)
         x = self._cbr(x, filters=filters, kernel_size=(3, 3),  no_act_fun=True)
         return x
 
-    def _bottleneck_branch_down(self, _input, filters, strides=(2, 2)):
+    def _bottleneck_branch_down(self, _input, filters, strides=(1, 1)):
         x = _input
         x = self._cbr(x, filters=filters//2, kernel_size=(1, 1))
         x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides)
@@ -856,7 +856,7 @@ class RedNetLayers(ResNetLayers):
             residual = self._vanilla_branch_down(_input, filters, strides)
         else:
             shortcut = _input
-            residual = self._vanilla_branch_down(_input, filters, strides=(1, 1))
+            residual = self._vanilla_branch_down(_input, filters)
         res = Add()([shortcut, residual])
         return res
 
@@ -870,7 +870,7 @@ class RedNetLayers(ResNetLayers):
             residual = self._bottleneck_branch_down(_input, filters, strides)
         else:
             shortcut = _input
-            residual = self._bottleneck_branch_down(_input, filters, strides=(1, 1))
+            residual = self._bottleneck_branch_down(_input, filters)
         res = Add()([shortcut, residual])
         return res
 

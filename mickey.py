@@ -84,7 +84,7 @@ class InceptionResNet(LabelCNN):
         x = incres.cbr(x, 256, (1, 1))
 
         x = incres._flatten(x)
-        x = incres._dense(x, 2 * ((self.CONTEXT * self.CONTEXT) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = incres._dense(x, 2 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
         x = incres._act_fun(x)
         x = incres._dense(x, self.NB_CLASSES)  # Returns a logit
         x = Activation('softmax')(x)  # No logit anymore
@@ -95,25 +95,26 @@ class ResNet(LabelCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=16*6, batch_size=16, relu_version='parametric', model_name="ResNet")
+        super().__init__(image_size=16*8, batch_size=64, relu_version='parametric', model_name="ResNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
-        resnet = ResNetLayers(relu_version=self.RELU_VERSION, full_preactivation=self.FULL_PREACTIVATION)
+        rednet = RedNetLayers(relu_version=self.RELU_VERSION, full_preactivation=self.FULL_PREACTIVATION)
 
         input_tensor = Input(shape=self.INPUT_SHAPE)
         x = input_tensor
-        x = resnet.stem(x)
-        for i, layers in enumerate(resnet.REPETITIONS_SMALL):
+        x, _ = rednet.stem(x)
+        for i, layers in enumerate(rednet.REPETITIONS_NORMAL):
             for j in range(layers):
-                x = resnet.vanilla(x, resnet.FEATURES[i], (j == 0))
-            x = resnet._spatialdropout(x, 0.25)
+                x = rednet.bottleneck_down(x, rednet.FEATURES[i], (j == 0))
+                if (j == 0) and i != 0:
+                    x = rednet._spatialdropout(x, 0.25)
 
-        x = resnet._flatten(x)
-        x = resnet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
-        x = resnet._dropout(x, 0.5)
-        x = resnet._act_fun(x)
-        x = resnet._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = rednet._flatten(x)
+        x = rednet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = rednet._dropout(x, 0.5)
+        x = rednet._act_fun(x)
+        x = rednet._dense(x, self.NB_CLASSES)  # Returns a logit
         x = Activation('softmax')(x)  # No logit anymore
         self.model = Model(inputs=input_tensor, outputs=x)
 
@@ -122,7 +123,7 @@ class RedNet(FullCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=608, batch_size=8, model_name="RedNet-HG")
+        super().__init__(image_size=608, batch_size=8, model_name="RedNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
@@ -165,14 +166,43 @@ class RedNet(FullCNN):
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
-class MyModel(LabelCNN):
+class SimpleNet(LabelCNN):
 
-    def __init__(self, model_name='Testing'):
-        super().__init__(model_name=model_name)
+    def __init__(self, model_name='SimpleNet'):
+        super().__init__(image_size=16*8, batch_size=64, relu_version='parametric', model_name=model_name)
 
     def build_model(self):
+        layers = BasicLayers(relu_version=self.RELU_VERSION)
         input_tensor = Input(shape=self.INPUT_SHAPE)
         x = input_tensor
 
-        self.model = keras.applications.nasnet.NASNetMobile(input_shape=(3, 112, 112), include_top=True, weights=None,
-                                                            input_tensor=x, pooling=None, classes=2)
+        x = layers.cbr(x, 64, kernel_size=(3, 3))
+
+        for i in range(3):
+            x = layers.cbr(x, 128, kernel_size=(3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+
+        for i in range(2):
+            x = layers.cbr(x, 128, kernel_size=(3, 3))
+
+        x = layers.cbr(x, 128, kernel_size=(3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+
+        for i in range(2):
+            x = layers.cbr(x, 128, kernel_size=(3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+
+        x = layers.cbr(x, 128, kernel_size=(1, 1))
+
+        x = layers.cbr(x, 128, kernel_size=(1, 1))
+        x = layers._max_pool(x, pool=(2, 2))
+
+        x = layers.cbr(x, 128, kernel_size=(3, 3))
+
+        x = layers._flatten(x)
+        x = layers._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = layers._dropout(x, 0.5)
+        x = layers._act_fun(x)
+        x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Activation('softmax')(x)  # No logit anymore
+        self.model = Model(inputs=input_tensor, outputs=x)
