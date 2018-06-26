@@ -76,6 +76,52 @@ def img_crop(im, w, h, stride, padding):
     return list_patches
 
 
+def generate_blocks(img, w):
+    """
+    Square crop a square image to parts of requested size (w, w)
+    :param im: Image to crop
+    :param w: Length of single side
+    :return: List of patches in column-major ordering
+    """
+    list_blocks = []
+    imgwidth = img.shape[0]
+    assert imgwidth == img.shape[1], 'Expected square image'
+    assert (imgwidth % w) == 0, 'Requested size does not evenly segment image'
+    for i in range(0, imgwidth, w):
+        for j in range(0, imgwidth, w):
+            im_patch = img[j:j + w, i:i + w]
+            list_blocks.append(im_patch)
+    np_blocks = np.asarray(list_blocks)
+    return np_blocks
+
+
+def group_blocks(imgs, w):
+    """
+    Concatenate square blocks of subimages into a new square image of requested size (w, w)
+    :param imgs: List of subimages in column-major ordering
+    :return: Reconstructed image
+    """
+    assert len(imgs[0].shape == 2), 'Expected list of BW images.'
+    subimg_size = imgs[1].shape
+    full_image_column = np.ndarray(shape=(len(imgs) * subimg_size, subimg_size))
+    for i in range(len(imgs)):
+        full_image_column[i * subimg_size: (i+1) * subimg_size, ] = imgs[i]
+    full_image = np.reshape(full_image_column, (w, w))  # Read rows first
+    return full_image
+
+
+def get_feature_maps(gt):
+    """
+    Generates feature maps for the given ground-truth map. First channel is background, second channel roads.
+    :param gt: Ground-truth map
+    :return: Feature maps for given ground-truth map as numpy array
+    """
+    feature_classification = np.ndarray(shape=(2, gt.shape[0], gt.shape[1]))
+    feature_classification[0] = gt
+    feature_classification[1] = ((gt - gt.max()) * -1)
+    return np.moveaxis(feature_classification, 0, -1)
+
+
 def create_patches(X, patch_size, stride, padding):
     img_patches = np.asarray([img_crop(X[i], patch_size, patch_size, stride, padding) for i in range(X.shape[0])])
     img_patches = img_patches.reshape(-1, img_patches.shape[2], img_patches.shape[3], img_patches.shape[4])
@@ -91,8 +137,8 @@ def create_patches_gt(X, patch_size, stride):
 def group_patches(patches, num_images):
     return patches.reshape(num_images, -1)
 
-def post_process_prediction(prediction):
 
+def post_process_prediction(prediction):
     #filter = np.ones((3,3)) / 9
     filterh  = np.zeros((3, 3))
     filterh[1,:] = 1/3
@@ -109,15 +155,15 @@ def post_process_prediction(prediction):
 
     cntr = 0
     for f in filters:
-        s[cntr,:,:] = convolve2d(prediction, f, mode='same', boundary='symm')
+        s[cntr, :, :] = convolve2d(prediction, f, mode='same', boundary='symm')
         cntr += 1
 
     res = s.max(0)
 
     return res
 
-def get_prediction(model, image, post_process):
 
+def get_prediction(model, image, post_process):
     image = image.reshape(1, image.shape[0], image.shape[1], image.shape[2])
     prediction = model.classify(image)
 
@@ -126,11 +172,11 @@ def get_prediction(model, image, post_process):
 
     return prediction
 
+
 def prediction_to_labels(prediction):
-
     labels = (prediction > 0.5)
-
     return labels
+
 
 def mask_to_submission(model, image_filename, post_process):
     """
@@ -161,7 +207,6 @@ def generate_submission(model, path, submission_filename, post_process):
     """ Generate a .csv containing the classification of the test set.
     :param path: path to input files
     """
-
     filenames = get_files_in_dir(path)
     image_full_names = prepend_path_to_filenames(path, filenames)
 
@@ -169,6 +214,7 @@ def generate_submission(model, path, submission_filename, post_process):
         f.write('id,prediction\n')
         for fn in image_full_names[0:]:
             f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_process))
+
 
 def prediction_mask(model, img, post_processing):
     """ Generate a label mask of the same size as the input image """
@@ -191,8 +237,10 @@ def prediction_mask(model, img, post_processing):
 
     return overlay
 
+
 def generate_overlay_images(model, path, post_processing):
-    """ Generate images with the prediction as overlay for easier visualization
+    """
+    Generate images with the prediction as overlay for easier visualization.
     :param path: input file path
     """
     filenames = get_files_in_dir(path)
@@ -233,7 +281,7 @@ def read_images_plus_labels():
     return images_np, ground_truth_np
 
 
-def split_dataset(images, gt_labels, seed):
+def split_dataset(images, gt_labels):
     """
     Generate a split of 15 images for training and validation (plus labels)
     :param images: Array of images
@@ -242,7 +290,6 @@ def split_dataset(images, gt_labels, seed):
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
     validate_count = 15
-    np.random.seed(seed)
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))

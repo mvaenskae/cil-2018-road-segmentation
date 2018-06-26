@@ -1,13 +1,13 @@
 import numpy as np
 
-from keras.layers import Dense, Flatten, Concatenate
-from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, BatchNormalization, SpatialDropout2D, Dropout
+from keras.layers import Dense, Flatten, Concatenate, Dropout
+from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, BatchNormalization, SpatialDropout2D
 from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
 from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
 from keras import backend as K
 from keras.callbacks import TensorBoard, Callback
-from helpers import epoch_augmentation
+from helpers import epoch_augmentation, get_feature_maps
 
 
 class BatchStreamer(object):
@@ -66,7 +66,58 @@ class BatchStreamer(object):
         return image_batch, label_batch
 
     @staticmethod
-    def get_one_epoch(image_set, label_set, samples_per_epoch, batch_size, context_size, patch_size):
+    def monte_carlo_maps(image_set, gt_set, batch_size, output_size):
+        """
+        Random Monte-Carlo sampling which generates a single batch to return of (images, gt_maps)
+        :param image_set: Set of images on which to sample
+        :param gt_set: Set of ground-truth maps on which to sample
+        :param batch_size: Size of batches
+        :param output_size: Size of requested output for images and ground-truth maps
+        :return: Tuple of (images, gt_maps) in NCHW format (Theano or TF) with N = batch_size.
+        """
+        image_batch = np.empty((batch_size, output_size, output_size, 3))
+        gt_batch = np.empty((batch_size, output_size, output_size, 2))
+
+        for i in range(batch_size):
+            # Select a random image
+            idx = np.random.choice(image_set.shape[0])
+            shape = image_set[idx].shape
+
+            # Sample a random window from the image
+            top_left = np.random.randint(shape[1] - output_size, size=2)
+
+            sub_image = image_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
+            gt_sub_image = gt_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
+
+            # Random flip
+            if np.random.choice(2) == 0:
+                # Flip vertically
+                sub_image = np.flipud(sub_image)
+                gt_sub_image = np.flipud(gt_sub_image)
+            if np.random.choice(2) == 0:
+                # Flip horizontally
+                sub_image = np.fliplr(sub_image)
+                gt_sub_image = np.fliplr(gt_sub_image)
+
+            # Random rotation in steps of 90°
+            num_rot = np.random.choice(4)
+            sub_image = np.rot90(sub_image, num_rot)
+            gt_sub_image = np.rot90(gt_sub_image, num_rot)
+
+            # Extract feature maps for classification
+            gt_sub_image_labels = get_feature_maps(gt_sub_image)
+
+            image_batch[i] = sub_image
+            gt_batch[i] = gt_sub_image_labels
+
+        if K.image_dim_ordering() == 'th' or K.image_dim_ordering() == 'tf':
+            image_batch = np.rollaxis(image_batch, 3, 1)
+            gt_batch = np.rollaxis(gt_batch, 3, 1)
+
+        return image_batch, gt_batch
+
+    @staticmethod
+    def get_one_epoch_batch(image_set, label_set, samples_per_epoch, batch_size, context_size, patch_size):
         """
         Return a tuple (images, labels) for a whole epoch worth of samplings.
         :param image_set: Set of images from which to generate the data from
@@ -92,30 +143,29 @@ class BatchStreamer(object):
         return image_patches, image_labels
 
 
-class ImageSequence(Sequence):
+class AbstractImageSequence(Sequence):
     """
     Custom sequencer used in the pipeline to return images in batches by applying Monte Carlo sampling.
     """
-    x_aug = None
-    y_aug = None
-
-    def __init__(self, x_set, y_set, batch_size, classes, context_size, patch_size, limit):
+    def __init__(self, x_set, y_set, batch_size, output_size, limit=None):
         self.x, self.y = x_set, y_set
         self.batch_size = batch_size
-        self.classes = classes
-        self.context = context_size
-        self.patch_size = patch_size
-        self.padding = (context_size - patch_size) // 2
-        self.limit = limit
+        self.output_size = output_size
+        self.padding = (output_size - x_set.shape[2]) // 2
+        self.x_aug, self.y_aug = None, None
         self.idx = 0
+        if limit is not None:
+            self.limit = limit
+        else:
+            self.limit = None
 
     def __len__(self):
-        return int(np.ceil(len(self.x) / float(self.batch_size)))
+        if self.limit is None:
+            self.limit = int(np.ceil(len(self.x_aug) / float(self.batch_size)))
+        return self.limit
 
     def __getitem__(self, idx):
-        assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
-        assert (self.y_aug is not None), "Ground truth images are not augmented according to requirements."
-        return BatchStreamer.monte_carlo_batch(self.x_aug, self.y_aug, self.batch_size, self.context, self.patch_size)
+        raise NotImplementedError('AbstractImageSequence::build_model is not yet implemented.')
 
     def __iter__(self):
         return self
@@ -134,6 +184,33 @@ class ImageSequence(Sequence):
     def overwrite_augmented(self, aug_img, aug_gt):
         self.x_aug = aug_img
         self.y_aug = aug_gt
+
+
+class ImageSequenceLabels(AbstractImageSequence):
+    """
+    Custom sequencer used in the pipeline to return images in batches by applying Monte Carlo sampling.
+    This class returns labels.
+    """
+    def __init__(self, x_set, y_set, batch_size, output_size, patch_size, limit=None):
+        super().__init__(x_set, y_set, batch_size, output_size, limit)
+        self.patch_size = patch_size
+        self.padding = (output_size - patch_size) // 2
+
+    def __getitem__(self, idx):
+        assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
+        assert (self.y_aug is not None), "Ground truth images are not augmented according to requirements."
+        return BatchStreamer.monte_carlo_batch(self.x_aug, self.y_aug, self.batch_size, self.output_size, self.patch_size)
+
+
+class ImageSequenceHeatmaps(AbstractImageSequence):
+    """
+    Custom sequencer used in the pipeline to return images in batches by applying Monte Carlo sampling.
+    This class returns heatmaps.
+    """
+    def __getitem__(self, idx):
+        assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
+        assert (self.y_aug is not None), "Ground truth images are not augmented according to requirements."
+        return BatchStreamer.monte_carlo_maps(self.x_aug, self.y_aug, self.batch_size, self.output_size)
 
 
 class ImageShuffler(Callback):
@@ -479,6 +556,9 @@ class BasicLayers(object):
     def _spatialdropout(self, _input, rate=0.25):
         return SpatialDropout2D(rate=rate, data_format=self.DATA_FORMAT)(_input)
 
+    def _dropout(self, _input, rate):
+        return Dropout(rate, noise_shape=None, seed=None)(_input)
+
     def cbr(self, _input, filters, kernel_size, strides=(1, 1), dilation_rate=(1, 1), padding='same'):
         x = _input
         x = self._conv2d(x, filters, kernel_size, strides, dilation_rate, padding)
@@ -499,6 +579,14 @@ class ResNetLayers(BasicLayers):
     REPETITIONS_NORMAL = [3, 4,  6, 3]
     REPETITIONS_LARGE  = [3, 4, 23, 3]
     REPETITIONS_EXTRA  = [3, 8, 36, 3]
+
+    def static_vars(**kwargs):
+        def decorate(func):
+            for k in kwargs:
+                setattr(func, k, kwargs[k])
+            return func
+
+        return decorate
 
     def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01, full_preactivation=False):
         super().__init__(data_format, relu_version, leaky_relu_alpha)
@@ -536,25 +624,25 @@ class ResNetLayers(BasicLayers):
         x = self._max_pool(x, pool=(3, 3))
         return x
 
-    def _vanilla_branch(self, _input, filters, strides, dilation=(1, 1)):
+    def _vanilla_branch(self, _input, filters, strides=(1, 1)):
         x = _input
-        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation)
-        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation, no_act_fun=True)
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides)
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3), no_act_fun=True)
         return x
 
-    def _bottleneck_branch(self, _input, filters, strides, dilation=(1, 1)):
+    def _bottleneck_branch(self, _input, filters, strides=(1, 1)):
         x = _input
-        x = self._cbr(x, filters=filters, kernel_size=(1, 1), strides=strides, dilation_rate=dilation)
-        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=(1, 1), dilation_rate=dilation)
-        x = self._cbr(x, filters=4 * filters, kernel_size=(1, 1), strides=(1, 1), dilation_rate=dilation, no_act_fun=True)
+        x = self._cbr(x, filters=filters, kernel_size=(1, 1))
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides)
+        x = self._cbr(x, filters=4 * filters, kernel_size=(1, 1), no_act_fun=True)
         return x
 
-    def _short_branch(self, _input, filters, strides, dilation=(1, 1)):
+    def _short_branch(self, _input, filters, strides=(1, 1)):
         x = _input
-        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, dilation_rate=dilation, no_act_fun=True)
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides, no_act_fun=True)
         return x
 
-    def _shortcut(self, _input, filters, strides=(1, 1), is_bottleneck=False):
+    def _shortcut(self, _input, filters, strides=(2, 2), is_bottleneck=False):
         x = _input
         first_filters = filters
         if is_bottleneck:
@@ -572,7 +660,7 @@ class ResNetLayers(BasicLayers):
             residual = self._vanilla_branch(_input, filters, strides)
         else:
             shortcut = _input
-            residual = self._vanilla_branch(_input, filters, strides=(1, 1))
+            residual = self._vanilla_branch(_input, filters)
         res = Add()([shortcut, residual])
         return res
 
@@ -586,7 +674,7 @@ class ResNetLayers(BasicLayers):
             residual = self._bottleneck_branch(_input, filters, strides)
         else:
             shortcut = _input
-            residual = self._bottleneck_branch(_input, filters, strides=(1, 1))
+            residual = self._bottleneck_branch(_input, filters)
         res = Add()([shortcut, residual])
         return res
 
@@ -600,7 +688,7 @@ class ResNetLayers(BasicLayers):
             residual = self._short_branch(_input, filters, strides)
         else:
             shortcut = _input
-            residual = self._short_branch(_input, filters, strides=(1, 1))
+            residual = self._short_branch(_input, filters)
         res = Add()([shortcut, residual])
         return res
 
@@ -706,3 +794,100 @@ class InceptionResNetLayer(BasicLayers):
         x = Add()([x, shortcut])
         x = self._act_fun(x)
         return x
+
+
+class RedNetLayers(ResNetLayers):
+    FULL_PREACTIVATION = False
+
+    # RedNet constants
+    FEATURES_UP = [512, 256, 128, 64]
+    REPETITIONS_UP = [6, 4, 3, 3]
+
+    def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01,
+                 full_preactivation=False):
+        super().__init__(data_format, relu_version, leaky_relu_alpha, full_preactivation=full_preactivation)
+
+    def stem(self, _input):
+        x = _input
+        x = self._conv2d(x, filters=64, kernel_size=(5, 5), strides=(2, 2))
+        x = self._batch_norm(x)
+        x = self._act_fun(x)
+        x1 = x
+        x = self._max_pool(x, pool=(3, 3))
+        return x, x1
+
+    def last_block(self, _input):
+        x = _input
+        for i in range(3):
+            x = self.residual_up(x, 64, is_last=False)
+        return x
+
+    def _vanilla_branch_down(self, _input, filters, strides=(2, 2)):
+        x = _input
+        x = self._cbr(x, filters=filters*2, kernel_size=(3, 3), strides=strides)
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3),  no_act_fun=True)
+        return x
+
+    def _bottleneck_branch_down(self, _input, filters, strides=(2, 2)):
+        x = _input
+        x = self._cbr(x, filters=filters//2, kernel_size=(1, 1))
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3), strides=strides)
+        x = self._cbr(x, filters=filters*4, kernel_size=(1, 1), no_act_fun=True)
+        return x
+
+    def _branch_up(self, _input, filters):
+        x = _input
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3))
+        x = self._tcbr(x, filters=filters//2, kernel_size=(3, 3), strides=(2, 2), no_act_fun=True)
+        return x
+
+    def _shortcut_up(self, _input, filters):
+        x = _input
+        x = self._tcbr(x, filters=filters//2, kernel_size=(2, 2), strides=(2, 2), no_act_fun=True)
+        return x
+
+    def vanilla_down(self, _input, filters, is_first=False):
+        if is_first:
+            if filters == 64:
+                strides = 1
+            else:
+                strides = 2
+            shortcut = self._shortcut(_input, filters, strides)
+            residual = self._vanilla_branch_down(_input, filters, strides)
+        else:
+            shortcut = _input
+            residual = self._vanilla_branch_down(_input, filters, strides=(1, 1))
+        res = Add()([shortcut, residual])
+        return res
+
+    def bottleneck_down(self, _input, filters, is_first=False):
+        if is_first:
+            if filters == 64:
+                strides = 1
+            else:
+                strides = 2
+            shortcut = self._shortcut(_input, filters, strides, True)
+            residual = self._bottleneck_branch_down(_input, filters, strides)
+        else:
+            shortcut = _input
+            residual = self._bottleneck_branch_down(_input, filters, strides=(1, 1))
+        res = Add()([shortcut, residual])
+        return res
+
+    def residual_up(self, _input, filters, is_last=False):
+        if is_last:
+            if filters == 64:
+                filters = 2*filters
+            shortcut = self._shortcut_up(_input, filters)
+            residual = self._branch_up(_input, filters)
+        else:
+            shortcut = _input
+            residual = self._vanilla_branch(_input, filters)
+        res = Add()([shortcut, residual])
+        return res
+
+    def agent_layer(self, _input, filters):
+        x = _input
+        x = self._cbr(x, filters, kernel_size=(1, 1))
+        return x
+
