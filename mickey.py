@@ -198,6 +198,7 @@ class SimpleNet(LabelCNN):
         x = layers._max_pool(x, pool=(2, 2))
 
         x = layers.cbr(x, 128, kernel_size=(3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
 
         x = layers._flatten(x)
         x = layers._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))

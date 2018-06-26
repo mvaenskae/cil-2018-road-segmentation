@@ -358,19 +358,28 @@ def epoch_augmentation(__data, __ground_truth, padding):
         random_order=False
     ).to_deterministic()
 
-    augment_image = iaa.Sequential(
+    image_concrete = iaa.Sequential(
+        [
+            iaa.Multiply((1.5, 1.7)),
+            iaa.ContrastNormalization((1.5, 1.7))
+        ],
+        random_order=False
+    ).to_deterministic()
+
+    image_normal = iaa.Sequential(
         iaa.SomeOf((0, None), [                     # Run up to all operations
             iaa.ContrastNormalization((0.8, 1.2)),  # Contrast modifications
             iaa.Multiply((0.8, 1.2)),               # Brightness modifications
-            iaa.Dropout(0.01),                      # Drop out single pixels
-            iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
         ], random_order=True)                       # Randomize the order of operations
     ).to_deterministic()
 
     __data = img_float_to_uint8(__data)
     aug_image = augment_both.augment_image(__data)
     aug_ground_truth = augment_both.augment_image(__ground_truth)
-    aug_image = augment_image.augment_image(aug_image)
+    if np.random.sample() < 0.1:
+        aug_image = image_concrete.augment_image(aug_image)
+    else:
+        aug_image = image_normal.augment_image(aug_image)
     aug_image = aug_image / 255.0
 
     return aug_image, aug_ground_truth
