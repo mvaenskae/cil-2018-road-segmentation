@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from keras.models import Model, load_model
+from keras.models import Model, load_model, save_model
 from keras.layers import Input
 from keras.optimizers import Adam, SGD
 from keras import losses
@@ -182,6 +182,10 @@ class FullCNN(AbstractCNN):
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass
+        except:
+            # Generic case for SIGUSR2. Stop model training and save current state.
+            filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}-SIGUSR2.hdf5"
+            self.model.save_model(filepath)
 
         print('Training completed')
 

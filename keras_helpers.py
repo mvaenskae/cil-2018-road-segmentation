@@ -84,10 +84,13 @@ class BatchStreamer(object):
             shape = image_set[idx].shape
 
             # Sample a random window from the image
-            top_left = np.random.randint(shape[1] - output_size, size=2)
-
-            sub_image = image_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
-            gt_sub_image = gt_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
+            if shape[1] == output_size:  # Whole image requested, cannot apply Monte-Carlo sampling
+                sub_image = image_set[idx]
+                gt_sub_image = gt_set[idx]
+            else:
+                top_left = np.random.randint(shape[1] - output_size, size=2)
+                sub_image = image_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
+                gt_sub_image = gt_set[idx][top_left[0]:top_left[0] + output_size, top_left[1]:top_left[1] + output_size]
 
             # Random flip
             if np.random.choice(2) == 0:
