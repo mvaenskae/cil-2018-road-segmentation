@@ -145,7 +145,7 @@ class FullCNN(AbstractCNN):
         # Define in a list what callbacks and metrics we want included
         model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
-        model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
+        model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.road_f1,
                          ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
 
         self.model.compile(loss=softmax_crossentropy_with_logits,
@@ -185,7 +185,7 @@ class FullCNN(AbstractCNN):
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
             filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}-SIGUSR2.hdf5"
-            self.model.save_model(filepath)
+            self.model.save(filepath)
 
         print('Training completed')
 

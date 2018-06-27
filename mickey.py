@@ -123,7 +123,7 @@ class RedNet(FullCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=608, batch_size=8, model_name="RedNet")
+        super().__init__(image_size=608//2, batch_size=4, model_name="RedNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
@@ -155,8 +155,8 @@ class RedNet(FullCNN):
                 x = rednet.residual_up(x, rednet.FEATURES_UP[i], (j == layers - 1))
             if i + 1 != len(rednet.REPETITIONS_UP):
                 # Remove this for full-size images. Needed for 304x304
-                #if i == 0:
-                #    x = Cropping2D(cropping=((0, 1), (0, 1)), data_format=self.DATA_FORMAT)(x)
+                if i == 0 and self.IMAGE_SIZE <= 304:
+                   x = Cropping2D(cropping=((0, 1), (0, 1)), data_format=self.DATA_FORMAT)(x)
                 x = Add()([x, agent_layers.pop()])
 
         x = rednet.last_block(x)

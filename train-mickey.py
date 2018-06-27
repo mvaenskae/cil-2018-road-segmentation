@@ -2,7 +2,7 @@
 
 from mickey import *
 
-EPOCH_COUNT = 40
+EPOCH_COUNT = 50
 
 # model = Inceptuous("Inceptuous-opt-test")
 # model = InceptionResNet()

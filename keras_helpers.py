@@ -210,6 +210,10 @@ class ImageSequenceHeatmaps(AbstractImageSequence):
     Custom sequencer used in the pipeline to return images in batches by applying Monte Carlo sampling.
     This class returns heatmaps.
     """
+    def __init__(self, x_set, y_set, batch_size, output_size, limit=None):
+        super().__init__(x_set, y_set, batch_size, output_size, limit)
+        self.padding = (608 - output_size) // 2
+
     def __getitem__(self, idx):
         assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
         assert (self.y_aug is not None), "Ground truth images are not augmented according to requirements."

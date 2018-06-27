@@ -190,7 +190,7 @@ class LabelCNN(AbstractCNN):
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
             filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}-SIGUSR2.hdf5"
-            self.model.save_model(filepath)
+            self.model.save(filepath)
 
         print('Training completed')
 
