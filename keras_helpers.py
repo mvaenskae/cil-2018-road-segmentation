@@ -154,6 +154,7 @@ class ImageShuffler(Callback):
         Modify our images to have random modifications at each epoch.
         :return: Nothing
         """
+
         img_aug, gt_aug = [], []
         for idx in range(images.shape[0]):
             img_temp, gt_temp = epoch_augmentation(images[idx], groundtruths[idx], padding=padding)

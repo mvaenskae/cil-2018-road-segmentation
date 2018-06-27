@@ -308,8 +308,6 @@ def epoch_augmentation(__data, __ground_truth, padding):
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
     #assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
 
-    sometimes = lambda aug: iaa.Sometimes(0.5, aug)
-
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
         px=(offset_y, offset_x, MAX - offset_y, MAX - offset_x),
@@ -330,17 +328,23 @@ def epoch_augmentation(__data, __ground_truth, padding):
         random_order=False
     ).to_deterministic()
 
-    concrete = iaa.Sequential(
+    road_augment = iaa.Sequential(
         [
             iaa.Multiply((1.5, 1.7)),
-            iaa.ContrastNormalization((1.5, 1.7)),
-            iaa.Sharpen(alpha=(0.05, 0.25), lightness=(0.45, 0.55)),
+            #   iaa.ContrastNormalization((1.5, 1.8)),
+            iaa.Sharpen(alpha=(0, 0.25), lightness=(0.75, 1.0)),
+            iaa.Emboss(alpha=(0, 1.0), strength=(0, 0.5)),
         ],
         random_order=False
     ).to_deterministic()
 
+    probabilistic_road_augment = iaa.Sequential(
+        [
+            iaa.Sometimes(0.3, road_augment)
+        ]
+    ).to_deterministic()
+
     augment_image = iaa.Sequential(
-        sometimes(concrete),                        # To concrete modifications
         iaa.Multiply((0.9, 1.1)),
         iaa.ContrastNormalization((0.9, 1.2)),
         iaa.SomeOf((0, None), [                     # Run up to all operations
@@ -353,6 +357,11 @@ def epoch_augmentation(__data, __ground_truth, padding):
     aug_image = augment_both.augment_image(__data)
     aug_ground_truth = augment_both.augment_image(__ground_truth)
     aug_image = augment_image.augment_image(aug_image)
+
+    aug_road = probabilistic_road_augment.augment_image(aug_image)
+    road_ids = aug_ground_truth > 0.5
+    aug_image[road_ids] = aug_road[road_ids]
+
     aug_image = aug_image / 255.0
 
     return aug_image, aug_ground_truth
