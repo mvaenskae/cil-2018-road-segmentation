@@ -90,7 +90,7 @@ class LabelCNN(AbstractCNN):
 
         # Reduce learning rate iff validation average f1 score not improving for SGD
         reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_macro_f1',
-                                                     factor=0.5,
+                                                     factor=0.25,
                                                      patience=5,
                                                      verbose=1,
                                                      mode='max',

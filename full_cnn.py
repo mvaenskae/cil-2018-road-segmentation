@@ -42,8 +42,8 @@ class FullCNN(AbstractCNN):
         self.images_train, self.groundtruth_train, self.images_validate, self.groundtruth_validate = split_dataset(self.images, self.groundtruth)
 
         # Print some extraneous metrics helpful to users of this template
-        batches_train = self.images_train.shape[0] // self.BATCH_SIZE
-        batches_validate = self.images_validate.shape[0] // self.BATCH_SIZE
+        batches_train = (self.images_train.shape[0] * (608 // self.IMAGE_SIZE)**2) // self.BATCH_SIZE
+        batches_validate = (self.images_validate.shape[0] * (608 // self.IMAGE_SIZE)**2) // self.BATCH_SIZE
         print('Dataset shape:', self.images.shape, '( Train:', self.images_train.shape[0], '| Validate:', self.images_validate.shape[0], ')')
         print('Trainsteps per epoch:', batches_train, '| Validatesteps per epoch:', batches_validate)
         return batches_train, batches_validate
@@ -67,38 +67,38 @@ class FullCNN(AbstractCNN):
                                                 self.IMAGE_SIZE, batches_validate)
 
         # Reduce learning rate iff validation average f1 score not improving for AdamOptimizer
-        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_macro_f1',
+        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_loss',
                                                       factor=0.1,
                                                       patience=5,
                                                       verbose=1,
-                                                      mode='max',
+                                                      mode='min',
                                                       min_delta=5e-3,
                                                       cooldown=0,
                                                       min_lr=1e-7)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_adam = EarlyStopping(monitor='val_macro_f1',
+        early_stopping_adam = EarlyStopping(monitor='val_loss',
                                             min_delta=5e-4,
                                             patience=11,
                                             verbose=1,
-                                            mode='max')
+                                            mode='min')
 
         # Reduce learning rate iff validation average f1 score not improving for SGD
-        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_macro_f1',
+        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_loss',
                                                      factor=0.5,
                                                      patience=5,
                                                      verbose=1,
-                                                     mode='max',
+                                                     mode='min',
                                                      min_delta=1e-4,
                                                      cooldown=0,
                                                      min_lr=1e-8)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_sgd = EarlyStopping(monitor='val_macro_f1',
+        early_stopping_sgd = EarlyStopping(monitor='val_loss',
                                            min_delta=1e-4,
                                            patience=11,
                                            verbose=1,
-                                           mode='max')
+                                           mode='min')
 
         # Enable Tensorboard logging and show the graph -- Other options not sensible when using Monte Carlo sampling
         tensorboard = TensorBoard(log_dir='./logs',
@@ -122,10 +122,10 @@ class FullCNN(AbstractCNN):
         #                                       write_images=False)
 
         # Save the model's state on each epoch, given the epoch has better fitness
-        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}.hdf5"
+        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-ce-{val_loss:.4f}.hdf5"
         checkpointer = ModelCheckpoint(filepath=filepath,
-                                       monitor='val_macro_f1',
-                                       mode='max',
+                                       monitor='val_loss',
+                                       mode='min',
                                        verbose=1,
                                        save_best_only=True,
                                        period=1)
@@ -143,13 +143,12 @@ class FullCNN(AbstractCNN):
             return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
         # Define in a list what callbacks and metrics we want included
-        model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
+        model_callbacks_adam = [tensorboard, checkpointer, image_shuffler]
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
-        model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.road_f1,
-                         ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
+        model_metrics = [metrics.categorical_accuracy]
 
         self.model.compile(loss=softmax_crossentropy_with_logits,
-                           optimizer=Adam(lr=1e-4),
+                           optimizer=Adam(lr=1e-5),
                            metrics=model_metrics)
 
         try:
@@ -164,27 +163,27 @@ class FullCNN(AbstractCNN):
                 shuffle=False,  # Not needed, our generator shuffles everything already
                 use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
 
-            # TODO: Generate callback which makes this double-call to the network not required.
-            self.model.compile(loss=softmax_crossentropy_with_logits,
-                               optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
-                               metrics=model_metrics)
-
-            self.model.fit_generator(
-                generator=training_data,
-                steps_per_epoch=batches_train,
-                epochs=epochs,
-                verbose=1,
-                callbacks=model_callbacks_sgd,
-                validation_data=validation_data,
-                validation_steps=batches_validate,
-                shuffle=False,  # Not needed, our generator shuffles everything already
-                use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
+            # # TODO: Generate callback which makes this double-call to the network not required.
+            # self.model.compile(loss=softmax_crossentropy_with_logits,
+            #                    optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
+            #                    metrics=model_metrics)
+            #
+            # self.model.fit_generator(
+            #     generator=training_data,
+            #     steps_per_epoch=batches_train,
+            #     epochs=epochs,
+            #     verbose=1,
+            #     callbacks=model_callbacks_sgd,
+            #     validation_data=validation_data,
+            #     validation_steps=batches_validate,
+            #     shuffle=False,  # Not needed, our generator shuffles everything already
+            #     use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
-            filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}-SIGUSR2.hdf5"
+            filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_loss:.4f}-SIGUSR2.hdf5"
             self.model.save(filepath)
 
         print('Training completed')
@@ -205,7 +204,7 @@ class FullCNN(AbstractCNN):
         Z = self.model.predict(img_patches)
 
         # TODO: Does this make really sense if we predict pixel-perfect maps?
-        Z = (Z[:, 0] < Z[:, 1]) * 1
+        Z = (np.greater_equal(Z[:, 0], Z[:, 1]) * 255.0).astype('uint8')
 
         # Regroup patches into images
         # TODO: This too needs fixing

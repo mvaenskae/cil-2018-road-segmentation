@@ -81,7 +81,7 @@ def generate_blocks(img, w):
     Square crop a square image to parts of requested size (w, w)
     :param im: Image to crop
     :param w: Length of single side
-    :return: List of patches in column-major ordering
+    :return: List of patches in row-major ordering
     """
     list_blocks = []
     imgwidth = img.shape[0]
@@ -89,7 +89,7 @@ def generate_blocks(img, w):
     assert (imgwidth % w) == 0, 'Requested size does not evenly segment image'
     for i in range(0, imgwidth, w):
         for j in range(0, imgwidth, w):
-            im_patch = img[j:j + w, i:i + w]
+            im_patch = img[i:i + w, j:j + w]
             list_blocks.append(im_patch)
     np_blocks = np.asarray(list_blocks)
     return np_blocks
@@ -98,16 +98,17 @@ def generate_blocks(img, w):
 def group_blocks(imgs, w):
     """
     Concatenate square blocks of subimages into a new square image of requested size (w, w)
-    :param imgs: List of subimages in column-major ordering
+    :param imgs: List of subimages in row-major ordering
     :return: Reconstructed image
     """
-    assert len(imgs[0].shape == 2), 'Expected list of BW images.'
-    subimg_size = imgs[1].shape
-    full_image_column = np.ndarray(shape=(len(imgs) * subimg_size, subimg_size))
-    for i in range(len(imgs)):
-        full_image_column[i * subimg_size: (i+1) * subimg_size, ] = imgs[i]
-    full_image = np.reshape(full_image_column, (w, w))  # Read rows first
-    return full_image
+    assert (imgs.shape[0] != 0), 'Expected numpy array of subimages.'
+    rows = []
+    row_count = w // imgs.shape[1]
+    col_count = w // imgs.shape[2]
+    for j in range(row_count):
+        row = np.hstack(imgs[j * col_count: (j+1) * col_count])
+        rows.append(row)
+    return np.vstack(rows)
 
 
 def get_feature_maps(gt):
@@ -204,7 +205,8 @@ def mask_to_submission(model, image_filename, post_process):
 
 
 def generate_submission(model, path, submission_filename, post_process):
-    """ Generate a .csv containing the classification of the test set.
+    """
+    Generate a .csv containing the classification of the test set.
     :param path: path to input files
     """
     filenames = get_files_in_dir(path)
@@ -214,6 +216,37 @@ def generate_submission(model, path, submission_filename, post_process):
         f.write('id,prediction\n')
         for fn in image_full_names[0:]:
             f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_process))
+
+
+def get_prediction_heatmap(model, image_filename, post_process):
+    """
+    Generate prediction on image_filename using the model (FullCNN)
+    :param model: Model used for predictions
+    :param image_filename: Image to open and predict on
+    :return: Nothing
+    """
+    img_number = int(re.search(r"\d+", image_filename).group(0))
+    image = mpimg.imread(image_filename)
+
+    print("Predicting " + image_filename)
+    return get_prediction(model, image, post_process)
+
+
+def generate_submission_heatmaps(model, path, submission_directory, post_process):
+    """
+    Generate pixel-perfect predictions by the model.
+    :param path: path to input files
+    """
+    filenames = get_files_in_dir(path)
+    image_full_names = prepend_path_to_filenames(path, filenames)
+
+    if not os.path.isdir(submission_directory):
+        os.mkdir(submission_directory)
+
+    for i, fname in enumerate(filenames):
+        prediction = Image.fromarray(get_prediction_heatmap(model, image_full_names[i], post_process))
+        prediction.save(os.path.join(submission_directory, fname), 'PNG')
+
 
 
 def prediction_mask(model, img, post_processing):
@@ -326,6 +359,10 @@ def prepend_path_to_filenames(path, filenames):
 
     return image_paths
 
+
+######################
+# Image Augmentation #
+######################
 
 def img_float_to_uint8(img):
     rimg = img - np.min(img)
