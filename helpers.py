@@ -325,7 +325,7 @@ def split_dataset(images, gt_labels):
     :param seed: Seed for repeatability
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
-    validate_count = 15
+    validate_count = 16
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))
@@ -376,7 +376,7 @@ def img_float_to_uint8(img):
 def epoch_augmentation(__data, __ground_truth, padding):
     MAX = 2*padding
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
-    assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
+    assert (MAX >= 0), "Augmentation would reduce images, is this really what you want?"
 
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
@@ -386,7 +386,7 @@ def epoch_augmentation(__data, __ground_truth, padding):
     )
     affine = iaa.Affine(
         rotate=(-180, 180),
-        shear=(-5, 5),
+        # shear=(-5, 5),
         scale=(0.9, 1.1),
         mode=["reflect"]
     )

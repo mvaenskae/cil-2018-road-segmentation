@@ -148,7 +148,7 @@ class LabelCNN(AbstractCNN):
             return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
         # Define in a list what callbacks and metrics we want included
-        model_callbacks_adam = [tensorboard, checkpointer, reduce_lr_on_plateau_adam, early_stopping_adam, image_shuffler]
+        model_callbacks_adam = [tensorboard, checkpointer, image_shuffler]
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
         model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
                          ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
@@ -169,21 +169,21 @@ class LabelCNN(AbstractCNN):
                 shuffle=False,  # Not needed, our generator shuffles everything already
                 use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
 
-            # TODO: Generate callback which makes this double-call to the network not required.
-            self.model.compile(loss=softmax_crossentropy_with_logits,
-                               optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
-                               metrics=model_metrics)
-
-            self.model.fit_generator(
-                generator=training_data,
-                steps_per_epoch=batches_train,
-                epochs=epochs,
-                verbose=1,
-                callbacks=model_callbacks_sgd,
-                validation_data=validation_data,
-                validation_steps=batches_validate,
-                shuffle=False,  # Not needed, our generator shuffles everything already
-                use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
+            # # TODO: Generate callback which makes this double-call to the network not required.
+            # self.model.compile(loss=softmax_crossentropy_with_logits,
+            #                    optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
+            #                    metrics=model_metrics)
+            #
+            # self.model.fit_generator(
+            #     generator=training_data,
+            #     steps_per_epoch=batches_train,
+            #     epochs=epochs,
+            #     verbose=1,
+            #     callbacks=model_callbacks_sgd,
+            #     validation_data=validation_data,
+            #     validation_steps=batches_validate,
+            #     shuffle=False,  # Not needed, our generator shuffles everything already
+            #     use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             pass

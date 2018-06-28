@@ -104,11 +104,9 @@ class ResNet(LabelCNN):
         input_tensor = Input(shape=self.INPUT_SHAPE)
         x = input_tensor
         x, _ = rednet.stem(x)
-        for i, layers in enumerate(rednet.REPETITIONS_NORMAL):
+        for i, layers in enumerate(rednet.REPETITIONS_SMALL):
             for j in range(layers):
-                x = rednet.bottleneck_down(x, rednet.FEATURES[i], (j == 0))
-                if (j == 0) and i != 0:
-                    x = rednet._spatialdropout(x, 0.25)
+                x = rednet.short(x, rednet.FEATURES[i], (j == 0))
 
         x = rednet._flatten(x)
         x = rednet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
@@ -199,6 +197,40 @@ class SimpleNet(LabelCNN):
 
         x = layers.cbr(x, 128, kernel_size=(3, 3))
         x = layers._max_pool(x, pool=(2, 2))
+
+        x = layers._flatten(x)
+        x = layers._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = layers._dropout(x, 0.5)
+        x = layers._act_fun(x)
+        x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Activation('softmax')(x)  # No logit anymore
+        self.model = Model(inputs=input_tensor, outputs=x)
+
+class EasyNet(LabelCNN):
+    def __init__(self, model_name='EasyNet'):
+        super().__init__(image_size=72, batch_size=64, relu_version='parametric', model_name=model_name)
+
+
+    def build_model(self):
+        layers = BasicLayers(relu_version=self.RELU_VERSION)
+        input_tensor = Input(shape=self.INPUT_SHAPE)
+        x = input_tensor
+
+        x = layers.cbr(x, 64, (5, 5))
+        x = layers._max_pool(x, pool=(2, 2))
+        x = layers._spatialdropout(x, 0.25)
+
+        x = layers.cbr(x, 128, (3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+        x = layers._spatialdropout(x, 0.25)
+
+        x = layers.cbr(x, 256, (3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+        x = layers._spatialdropout(x, 0.25)
+
+        x = layers.cbr(x, 512, (3, 3))
+        x = layers._max_pool(x, pool=(2, 2))
+        x = layers._spatialdropout(x, 0.25)
 
         x = layers._flatten(x)
         x = layers._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
