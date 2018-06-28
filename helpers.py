@@ -225,11 +225,14 @@ def get_prediction_heatmap(model, image_filename, post_process):
     :param image_filename: Image to open and predict on
     :return: Nothing
     """
-    img_number = int(re.search(r"\d+", image_filename).group(0))
     image = mpimg.imread(image_filename)
-
     print("Predicting " + image_filename)
-    return get_prediction(model, image, post_process)
+    prediction = model.classify(image)
+
+    if post_process:
+        prediction = post_process_prediction(prediction)
+
+    return prediction
 
 
 def generate_submission_heatmaps(model, path, submission_directory, post_process):
