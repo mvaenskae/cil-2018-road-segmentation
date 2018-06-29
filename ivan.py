@@ -9,7 +9,7 @@ class SegNet(FullCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=608, batch_size=8, model_name="SegNet")
+        super().__init__(image_size=608, batch_size=4, model_name="SegNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
