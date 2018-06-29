@@ -394,6 +394,8 @@ def epoch_augmentation(__data, __ground_truth, padding):
     augment_both = iaa.Sequential(
         [
             padding,                    # Pad the image to requested padding
+            iaa.Fliplr(0.5),
+            iaa.Flipud(0.5),
             iaa.Sometimes(0.5, affine)  # Apply sometimes more interesting augmentations
         ],
         random_order=False
