@@ -809,8 +809,10 @@ class RedNetLayers(ResNetLayers):
     FULL_PREACTIVATION = False
 
     # RedNet constants
-    FEATURES_UP = [512, 256, 128, 64]
-    REPETITIONS_UP = [6, 4, 3, 3]
+    FEATURES = [64, 128, 256, 512, 512]
+    FEATURES_UP = [512, 512, 256, 128, 64]
+    REPETITIONS_NORMAL = [3, 4, 6, 3, 2]
+    REPETITIONS_UP_NORMAL = [2, 3, 6, 4, 3]
 
     def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01,
                  full_preactivation=False):
@@ -850,9 +852,20 @@ class RedNetLayers(ResNetLayers):
         x = self._tcbr(x, filters=filters//2, kernel_size=(3, 3), strides=(2, 2), no_act_fun=True)
         return x
 
+    def _branch_up_keep_filters(self, _input, filters):
+        x = _input
+        x = self._cbr(x, filters=filters, kernel_size=(3, 3))
+        x = self._tcbr(x, filters=filters, kernel_size=(3, 3), strides=(2, 2), no_act_fun=True)
+        return x
+
     def _shortcut_up(self, _input, filters):
         x = _input
         x = self._tcbr(x, filters=filters//2, kernel_size=(2, 2), strides=(2, 2), no_act_fun=True)
+        return x
+
+    def _shortcut_up_keep_filters(self, _input, filters):
+        x = _input
+        x = self._tcbr(x, filters=filters, kernel_size=(2, 2), strides=(2, 2), no_act_fun=True)
         return x
 
     def vanilla_down(self, _input, filters, is_first=False):
@@ -894,6 +907,19 @@ class RedNetLayers(ResNetLayers):
             residual = self._vanilla_branch(_input, filters)
         res = Add()([shortcut, residual])
         return res
+
+    def residual_up_keep_filters(self, _input, filters, is_last=False):
+        if is_last:
+            if filters == 64:
+                filters = 2*filters
+            shortcut = self._shortcut_up_keep_filters(_input, filters)
+            residual = self._branch_up_keep_filters(_input, filters)
+        else:
+            shortcut = _input
+            residual = self._vanilla_branch(_input, filters)
+        res = Add()([shortcut, residual])
+        return res
+
 
     def agent_layer(self, _input, filters):
         x = _input

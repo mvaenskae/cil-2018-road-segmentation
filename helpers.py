@@ -325,7 +325,7 @@ def split_dataset(images, gt_labels):
     :param seed: Seed for repeatability
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
-    validate_count = 16
+    validate_count = 8
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))
@@ -352,6 +352,7 @@ def get_files_in_dir(dir):
     image_filenames = []
     for (dirpath, dirnames, filenames) in os.walk(dir):
         image_filenames.extend(filenames)
+        break
 
     return image_filenames
 
@@ -393,6 +394,8 @@ def epoch_augmentation(__data, __ground_truth, padding):
     augment_both = iaa.Sequential(
         [
             padding,                    # Pad the image to requested padding
+            iaa.Fliplr(0.5),
+            iaa.Flipud(0.5),
             iaa.Sometimes(0.5, affine)  # Apply sometimes more interesting augmentations
         ],
         random_order=False
