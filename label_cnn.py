@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from keras.models import Model, load_model , save_model
-from keras.layers import Input
+from keras.models import load_model
 from keras.optimizers import Adam, SGD
-from keras import losses
 from keras import metrics
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
 from helpers import *
@@ -53,16 +51,11 @@ class LabelCNN(AbstractCNN):
         print('Samples per image:', samples_per_image, '( Trainsteps per epoch:', batches_train, '| Validatesteps per epoch:', batches_validate, ')')
         return batches_train, batches_validate
 
-    def train(self, epochs, checkpoint=None):
+    def train(self, epochs, checkpoint=None, init_epoch=0):
         """
         Train this model.
         """
         np.random.seed(42)
-
-        if checkpoint is not None:
-            load_model(checkpoint)
-            print('Loaded checkpoint for model to continue training')
-
         batches_train, batches_validate = self.preprocessing_train()
 
         # Generators for image sequences which apply Monte Carlo sampling on them
@@ -153,15 +146,20 @@ class LabelCNN(AbstractCNN):
         model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
                          ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
 
-        self.model.compile(loss=softmax_crossentropy_with_logits,
-                           optimizer=Adam(lr=1e-4),
-                           metrics=model_metrics)
+        if checkpoint is not None:
+            self.model = load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits})
+            print('Loaded checkpoint for model to continue training')
+        else:
+            self.model.compile(loss=softmax_crossentropy_with_logits,
+                               optimizer=Adam(lr=1e-4),
+                               metrics=model_metrics)
 
         try:
             self.model.fit_generator(
                 generator=training_data,
                 steps_per_epoch=batches_train,
                 epochs=epochs,
+                initial_epoch=init_epoch,
                 verbose=1,
                 callbacks=model_callbacks_adam,
                 validation_data=validation_data,
@@ -186,11 +184,13 @@ class LabelCNN(AbstractCNN):
             #     use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
+            filepath = "weights-" + self.MODEL_NAME + "-SIG2.hdf5"
+            self.model.save(filepath, overwrite=True, include_optimizer=True)
             pass
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
-            filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}-SIGUSR2.hdf5"
-            self.model.save(filepath)
+            filepath = "weights-" + self.MODEL_NAME + "-SIGUSR2.hdf5"
+            self.model.save(filepath, overwrite=True, include_optimizer=True)
 
         print('Training completed')
 
@@ -208,7 +208,6 @@ class LabelCNN(AbstractCNN):
 
         # Run prediction
         Z = self.model.predict(img_patches)
-
         Z = (Z[:, 0] < Z[:, 1]) * 1
 
         # Regroup patches into images

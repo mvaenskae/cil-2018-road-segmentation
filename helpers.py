@@ -325,7 +325,7 @@ def split_dataset(images, gt_labels):
     :param seed: Seed for repeatability
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
-    validate_count = 16
+    validate_count = 8
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))

@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
-from keras.models import Model, load_model, save_model
-from keras.layers import Input
+from keras.models import load_model
 from keras.optimizers import Adam, SGD
-from keras import losses
 from keras import metrics
 from keras.callbacks import ReduceLROnPlateau, EarlyStopping, ModelCheckpoint
 from helpers import *
@@ -53,7 +51,6 @@ class FullCNN(AbstractCNN):
         Train this model.
         """
         np.random.seed(42)
-
         batches_train, batches_validate = self.preprocessing_train()
 
         # Generators for image sequences which apply Monte Carlo sampling on them
@@ -81,7 +78,7 @@ class FullCNN(AbstractCNN):
 
         # Reduce learning rate iff validation average f1 score not improving for SGD
         reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_loss',
-                                                     factor=0.5,
+                                                     factor=0.25,
                                                      patience=5,
                                                      verbose=1,
                                                      mode='min',
@@ -143,13 +140,13 @@ class FullCNN(AbstractCNN):
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
         model_metrics = [metrics.categorical_accuracy]
 
-        self.model.compile(loss=softmax_crossentropy_with_logits,
-                           optimizer=Adam(lr=1e-5),
-                           metrics=model_metrics)
-
         if checkpoint is not None:
-            load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits})
+            self.model = load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits})
             print('Loaded checkpoint for model to continue training')
+        else:
+            self.model.compile(loss=softmax_crossentropy_with_logits,
+                               optimizer=Adam(lr=1e-5),
+                               metrics=model_metrics)
 
         try:
             self.model.fit_generator(
@@ -182,12 +179,12 @@ class FullCNN(AbstractCNN):
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             filepath = "weights-" + self.MODEL_NAME + "-SIG2.hdf5"
-            self.model.save(filepath)
+            self.model.save(filepath, overwrite=True, include_optimizer=True)
             pass
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
             filepath = "weights-" + self.MODEL_NAME + "-SIGUSR2.hdf5"
-            self.model.save(filepath)
+            self.model.save(filepath, overwrite=True, include_optimizer=True)
 
         print('Training completed')
 
@@ -205,10 +202,7 @@ class FullCNN(AbstractCNN):
 
         # Run prediction
         Z = self.model.predict(img_patches)
-
-        # TODO: Does this make really sense if we predict pixel-perfect maps?
         Z = (np.greater_equal(Z[:, 0], Z[:, 1]) * 255.0).astype('uint8')
 
         # Regroup patches into images
-        # TODO: This too needs fixing
         return group_blocks(Z, X.shape[0])
