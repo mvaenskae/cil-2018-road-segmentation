@@ -810,7 +810,8 @@ class RedNetLayers(ResNetLayers):
 
     # RedNet constants
     FEATURES_UP = [512, 256, 128, 64]
-    REPETITIONS_UP = [6, 4, 3, 3]
+    REPETITIONS_UP_SMALL =  [2, 2, 2, 2]
+    REPETITIONS_UP_NORMAL = [3, 6, 4, 3]
 
     def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01,
                  full_preactivation=False):

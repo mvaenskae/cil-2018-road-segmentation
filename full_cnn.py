@@ -48,15 +48,11 @@ class FullCNN(AbstractCNN):
         print('Trainsteps per epoch:', batches_train, '| Validatesteps per epoch:', batches_validate)
         return batches_train, batches_validate
 
-    def train(self, epochs, checkpoint=None):
+    def train(self, epochs, checkpoint=None, init_epoch=0):
         """
         Train this model.
         """
         np.random.seed(42)
-
-        if checkpoint is not None:
-            load_model(checkpoint)
-            print('Loaded checkpoint for model to continue training')
 
         batches_train, batches_validate = self.preprocessing_train()
 
@@ -127,8 +123,8 @@ class FullCNN(AbstractCNN):
                                        monitor='val_loss',
                                        mode='min',
                                        verbose=1,
-                                       save_best_only=True,
-                                       period=1)
+                                       save_best_only=False,
+                                       period=500)
 
         # Shuffle/augment images at the start of each epoch
         image_shuffler = ImageShuffler(training_data, validation_data)
@@ -151,11 +147,16 @@ class FullCNN(AbstractCNN):
                            optimizer=Adam(lr=1e-5),
                            metrics=model_metrics)
 
+        if checkpoint is not None:
+            load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits})
+            print('Loaded checkpoint for model to continue training')
+
         try:
             self.model.fit_generator(
                 generator=training_data,
                 steps_per_epoch=batches_train,
                 epochs=epochs,
+                initial_epoch=init_epoch,
                 verbose=1,
                 callbacks=model_callbacks_adam,
                 validation_data=validation_data,
@@ -180,10 +181,12 @@ class FullCNN(AbstractCNN):
             #     use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
+            filepath = "weights-" + self.MODEL_NAME + "-SIG2.hdf5"
+            self.model.save(filepath)
             pass
         except:
             # Generic case for SIGUSR2. Stop model training and save current state.
-            filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_loss:.4f}-SIGUSR2.hdf5"
+            filepath = "weights-" + self.MODEL_NAME + "-SIGUSR2.hdf5"
             self.model.save(filepath)
 
         print('Training completed')
