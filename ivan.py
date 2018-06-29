@@ -1,20 +1,15 @@
-from label_cnn import LabelCNN
 from full_cnn import FullCNN
-import keras.applications.nasnet
 from keras import Model
-from keras.layers import Activation, Concatenate, Add, Input, Cropping2D, UpSampling2D
-from keras_helpers import BasicLayers, ResNetLayers, InceptionResNetLayer, RedNetLayers
+from keras.layers import Activation, Input, UpSampling2D, Lambda
+from keras_helpers import BasicLayers
+from keras.activations import softmax
 
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import numpy as np
-from PIL import Image
 
 class SegNet(FullCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=608, batch_size=4, model_name="SegNet")
+        super().__init__(image_size=608, batch_size=1, model_name="SegNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
@@ -82,5 +77,5 @@ class SegNet(FullCNN):
         x = layers.cbr(x, 64, kernel_size=(3, 3), strides=(1, 1), dilation_rate=(1, 1), padding='same')
         x = layers._conv2d(x, 2, 1, strides=(1, 1), dilation_rate=(1, 1), padding='same')
         x = layers._batch_norm(x)
-
+        x = Lambda(lambda x: softmax(x, axis=1))(x)
         self.model = Model(inputs=input_tensor, outputs=x)
