@@ -352,6 +352,7 @@ def get_files_in_dir(dir):
     image_filenames = []
     for (dirpath, dirnames, filenames) in os.walk(dir):
         image_filenames.extend(filenames)
+        break
 
     return image_filenames
 
