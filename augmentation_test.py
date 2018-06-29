@@ -21,7 +21,5 @@ for i,g in zip(imgs, gts):
     im = Image.fromarray(np.uint8(img * 255.0))
     im.save(output_dir + str("/") + str(cntr) + ".png")
     cntr += 1
-    
-
 
 #save_images(aug_img,'augmented')

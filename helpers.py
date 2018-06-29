@@ -81,7 +81,7 @@ def generate_blocks(img, w):
     Square crop a square image to parts of requested size (w, w)
     :param im: Image to crop
     :param w: Length of single side
-    :return: List of patches in column-major ordering
+    :return: List of patches in row-major ordering
     """
     list_blocks = []
     imgwidth = img.shape[0]
@@ -89,7 +89,7 @@ def generate_blocks(img, w):
     assert (imgwidth % w) == 0, 'Requested size does not evenly segment image'
     for i in range(0, imgwidth, w):
         for j in range(0, imgwidth, w):
-            im_patch = img[j:j + w, i:i + w]
+            im_patch = img[i:i + w, j:j + w]
             list_blocks.append(im_patch)
     np_blocks = np.asarray(list_blocks)
     return np_blocks
@@ -98,16 +98,17 @@ def generate_blocks(img, w):
 def group_blocks(imgs, w):
     """
     Concatenate square blocks of subimages into a new square image of requested size (w, w)
-    :param imgs: List of subimages in column-major ordering
+    :param imgs: List of subimages in row-major ordering
     :return: Reconstructed image
     """
-    assert len(imgs[0].shape == 2), 'Expected list of BW images.'
-    subimg_size = imgs[1].shape
-    full_image_column = np.ndarray(shape=(len(imgs) * subimg_size, subimg_size))
-    for i in range(len(imgs)):
-        full_image_column[i * subimg_size: (i+1) * subimg_size, ] = imgs[i]
-    full_image = np.reshape(full_image_column, (w, w))  # Read rows first
-    return full_image
+    assert (imgs.shape[0] != 0), 'Expected numpy array of subimages.'
+    rows = []
+    row_count = w // imgs.shape[1]
+    col_count = w // imgs.shape[2]
+    for j in range(row_count):
+        row = np.hstack(imgs[j * col_count: (j+1) * col_count])
+        rows.append(row)
+    return np.vstack(rows)
 
 
 def get_feature_maps(gt):
@@ -204,7 +205,8 @@ def mask_to_submission(model, image_filename, post_process):
 
 
 def generate_submission(model, path, submission_filename, post_process):
-    """ Generate a .csv containing the classification of the test set.
+    """
+    Generate a .csv containing the classification of the test set.
     :param path: path to input files
     """
     filenames = get_files_in_dir(path)
@@ -214,6 +216,40 @@ def generate_submission(model, path, submission_filename, post_process):
         f.write('id,prediction\n')
         for fn in image_full_names[0:]:
             f.writelines('{}\n'.format(s) for s in mask_to_submission(model, fn, post_process))
+
+
+def get_prediction_heatmap(model, image_filename, post_process):
+    """
+    Generate prediction on image_filename using the model (FullCNN)
+    :param model: Model used for predictions
+    :param image_filename: Image to open and predict on
+    :return: Nothing
+    """
+    image = mpimg.imread(image_filename)
+    print("Predicting " + image_filename)
+    prediction = model.classify(image)
+
+    if post_process:
+        prediction = post_process_prediction(prediction)
+
+    return prediction
+
+
+def generate_submission_heatmaps(model, path, submission_directory, post_process):
+    """
+    Generate pixel-perfect predictions by the model.
+    :param path: path to input files
+    """
+    filenames = get_files_in_dir(path)
+    image_full_names = prepend_path_to_filenames(path, filenames)
+
+    if not os.path.isdir(submission_directory):
+        os.mkdir(submission_directory)
+
+    for i, fname in enumerate(filenames):
+        prediction = Image.fromarray(get_prediction_heatmap(model, image_full_names[i], post_process))
+        prediction.save(os.path.join(submission_directory, fname), 'PNG')
+
 
 
 def prediction_mask(model, img, post_processing):
@@ -289,7 +325,7 @@ def split_dataset(images, gt_labels):
     :param seed: Seed for repeatability
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
-    validate_count = 15
+    validate_count = 16
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))
@@ -327,6 +363,10 @@ def prepend_path_to_filenames(path, filenames):
     return image_paths
 
 
+######################
+# Image Augmentation #
+######################
+
 def img_float_to_uint8(img):
     rimg = img - np.min(img)
     rimg = (rimg / np.max(rimg) * 255).round().astype(np.uint8)
@@ -336,7 +376,7 @@ def img_float_to_uint8(img):
 def epoch_augmentation(__data, __ground_truth, padding):
     MAX = 2*padding
     assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
-    assert (MAX > 0), "Augmentation would reduce images, is this really what you want?"
+    assert (MAX >= 0), "Augmentation would reduce images, is this really what you want?"
 
     offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
     padding = iaa.Pad(
@@ -346,40 +386,48 @@ def epoch_augmentation(__data, __ground_truth, padding):
     )
     affine = iaa.Affine(
         rotate=(-180, 180),
-        shear=(-5, 5),
+        # shear=(-5, 5),
         scale=(0.9, 1.1),
         mode=["reflect"]
     )
     augment_both = iaa.Sequential(
         [
             padding,                    # Pad the image to requested padding
-            iaa.Sometimes(0.3, affine)  # Apply sometimes more interesting augmentations
+            iaa.Sometimes(0.5, affine)  # Apply sometimes more interesting augmentations
         ],
         random_order=False
     ).to_deterministic()
 
-    image_concrete = iaa.Sequential(
+    road_augment = iaa.Sequential(
         [
             iaa.Multiply((1.5, 1.7)),
-            iaa.ContrastNormalization((1.5, 1.7))
+            #   iaa.ContrastNormalization((1.5, 1.8)),
+            iaa.Sharpen(alpha=(0, 0.25), lightness=(0.75, 1.0)),
+            iaa.Emboss(alpha=(0, 1.0), strength=(0, 0.5)),
         ],
         random_order=False
     ).to_deterministic()
 
-    image_normal = iaa.Sequential(
-        iaa.SomeOf((0, None), [                     # Run up to all operations
-            iaa.ContrastNormalization((0.8, 1.2)),  # Contrast modifications
-            iaa.Multiply((0.8, 1.2)),               # Brightness modifications
-        ], random_order=True)                       # Randomize the order of operations
+    probabilistic_road_augment = iaa.Sequential(
+        [
+            iaa.Sometimes(0.3, road_augment)
+        ]
+    ).to_deterministic()
+
+    augment_image = iaa.Sequential(
+        iaa.Multiply((0.9, 1.1)),
+        iaa.ContrastNormalization((0.9, 1.2))
     ).to_deterministic()
 
     __data = img_float_to_uint8(__data)
     aug_image = augment_both.augment_image(__data)
     aug_ground_truth = augment_both.augment_image(__ground_truth)
-    if np.random.sample() < 0.1:
-        aug_image = image_concrete.augment_image(aug_image)
-    else:
-        aug_image = image_normal.augment_image(aug_image)
+    aug_image = augment_image.augment_image(aug_image)
+
+    aug_road = probabilistic_road_augment.augment_image(aug_image)
+    road_ids = aug_ground_truth > 0.5
+    aug_image[road_ids] = aug_road[road_ids]
+
     aug_image = aug_image / 255.0
 
     return aug_image, aug_ground_truth

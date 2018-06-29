@@ -2,7 +2,7 @@ import numpy as np
 
 from keras.layers import Dense, Flatten, Concatenate, Dropout
 from keras.layers import Conv2D, Conv2DTranspose, MaxPooling2D, BatchNormalization, SpatialDropout2D
-from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU
+from keras.layers.advanced_activations import LeakyReLU, PReLU, ReLU, ELU
 from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
 from keras import backend as K
@@ -212,7 +212,7 @@ class ImageSequenceHeatmaps(AbstractImageSequence):
     """
     def __init__(self, x_set, y_set, batch_size, output_size, limit=None):
         super().__init__(x_set, y_set, batch_size, output_size, limit)
-        self.padding = (608 - output_size) // 2
+        self.padding = (608 - x_set.shape[2]) // 2
 
     def __getitem__(self, idx):
         assert (self.x_aug is not None), "Images are not augmented. The Sequencer doesn't work without augmented images."
@@ -529,6 +529,8 @@ class BasicLayers(object):
                 alpha_constraint=None,
                 shared_axes=None  # No sharing for channel-wise which is reportedly better
             )(_input)
+        elif self.RELU_VERSION == 'exponential':
+            return ELU(alpha=1.0)(_input)
         else:
             return ReLU()(_input)
 
