@@ -12,7 +12,8 @@ model = SegNet("SegNet")
 model.load('model_weights.h5')
 model.model.summary()
 
-submission_filename = 'submission-' + timestamp + '_' + predict_on + '.csv'
+submission_filename = 'submission-' + timestamp + '_' + model.MODEL_NAME + '.csv'
+submission_directory = 'prediction-' + timestamp + '_' + model.MODEL_NAME
 
-generate_submission(model, 'data/test_images', submission_filename, True)
-generate_overlay_images(model, 'data/test_images', True)
+post_processing = False
+generate_submission_heatmaps(model, os.path.join("data", predict_on), submission_directory, post_processing)
