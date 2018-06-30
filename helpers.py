@@ -5,6 +5,7 @@ import numpy as np
 from imgaug import augmenters as iaa
 from PIL import Image
 from scipy.signal import convolve2d
+import math
 import re
 import os
 
@@ -140,26 +141,32 @@ def group_patches(patches, num_images):
 
 
 def post_process_prediction(prediction):
-    #filter = np.ones((3,3)) / 9
-    filterh  = np.zeros((3, 3))
-    filterh[1,:] = 1/3
 
-    filterv  = np.zeros((3, 3))
-    filterv[:,1] = 1/3
+    square = prediction.reshape(int(math.sqrt(prediction.shape[1])), int(math.sqrt(prediction.shape[1])))
+
+    filterh  = np.zeros((5, 5))
+    filterh[2,:] = 1/4
+    filterh[2,2] = 0
+
+    filterv  = np.zeros((5, 5))
+    filterv[:,2] = 1/4
+    filterv[2,2] = 0
 
     filterd  = np.identity(3) / 3
     filterd2 = np.fliplr(np.identity(3))/3
 
     filters = (filterh, filterv, filterd, filterd2)
 
-    s = np.zeros((len(filters), prediction.shape[0], prediction.shape[1]))
+    s = np.zeros((len(filters), square.shape[0], square.shape[1]))
 
     cntr = 0
     for f in filters:
-        s[cntr, :, :] = convolve2d(prediction, f, mode='same', boundary='symm')
+        s[cntr, :, :] = convolve2d(square, f, mode='same', boundary='symm')
         cntr += 1
 
-    res = s.max(0)
+    res = np.maximum(s.max(0),square)
+
+    res = res.reshape(1, square.shape[0]*square.shape[1])
 
     return res
 
