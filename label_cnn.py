@@ -147,7 +147,12 @@ class LabelCNN(AbstractCNN):
                          ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
 
         if checkpoint is not None:
-            self.model = load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits})
+            self.model = load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits,
+                                                                'mcor': ExtraMetrics.mcor,
+                                                                'cil_error': ExtraMetrics.cil_error,
+                                                                'road_f1': ExtraMetrics.road_f1,
+                                                                'non_road_f1': ExtraMetrics.non_road_f1,
+                                                                'macro_f1': ExtraMetrics.macro_f1})
             print('Loaded checkpoint for model to continue training')
         else:
             self.model.compile(loss=softmax_crossentropy_with_logits,
