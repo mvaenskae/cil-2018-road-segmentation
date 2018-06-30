@@ -1,9 +1,15 @@
-from ..helpers import load_image, img_float_to_uint8, get_files_in_dir
+#!/usr/bin/env python3
+
+import sys
+sys.path.append("..")  # Adds higher directory to python modules path.
+
+from helpers import load_image, img_float_to_uint8, get_files_in_dir
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 
 TEST_DIR = 'test_images/'
-PREDICTION_DIR = 'predictions_rednet_e3600/'
+PREDICTION_DIR = 'predictions_rednet50_e1100/'
 
 
 filenames_test = [TEST_DIR + s for s in sorted(get_files_in_dir(TEST_DIR))]
@@ -21,3 +27,7 @@ for i in range(default_length):
     overlay_img = Image.fromarray(color_mask, 'RGB').convert("RGBA")
     blended = Image.blend(background_img, overlay_img, 0.3)
     overlay_list.append(blended)
+
+for olay in overlay_list:
+    plt.imshow(olay)
+    plt.show()
