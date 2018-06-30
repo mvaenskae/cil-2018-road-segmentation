@@ -48,9 +48,7 @@ class Inceptuous(LabelCNN):
         x = layers._dense(x, 2 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
-        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
-        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -89,9 +87,7 @@ class InceptionResNet(LabelCNN):
         x = incres._dropout(x, 0.5)
         x = incres._act_fun(x)
         x = incres._dense(x, self.NB_CLASSES)  # Returns a logit
-        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
-        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -117,9 +113,7 @@ class ResNet(LabelCNN):
         x = resnet._dropout(x, 0.5)
         x = resnet._act_fun(x)
         x = resnet._dense(x, self.NB_CLASSES)  # Returns a logit
-        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
-        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -213,9 +207,7 @@ class SimpleNet(LabelCNN):
         x = layers._dropout(x, 0.5)
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
-        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
-        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 class EasyNet(LabelCNN):
@@ -249,7 +241,5 @@ class EasyNet(LabelCNN):
         x = layers._dropout(x, 0.5)
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
-        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
-        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
