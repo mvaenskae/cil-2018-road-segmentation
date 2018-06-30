@@ -1,8 +1,7 @@
 from label_cnn import LabelCNN
 from full_cnn import FullCNN
-import keras.applications.nasnet
 from keras import Model
-from keras.layers import Activation, Concatenate, Add, Input, Cropping2D
+from keras.layers import Activation, Concatenate, Add, Input, Cropping2D, Permute
 from keras_helpers import BasicLayers, ResNetLayers, InceptionResNetLayer, RedNetLayers
 
 class Inceptuous(LabelCNN):
@@ -49,7 +48,9 @@ class Inceptuous(LabelCNN):
         x = layers._dense(x, 2 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -88,7 +89,9 @@ class InceptionResNet(LabelCNN):
         x = incres._dropout(x, 0.5)
         x = incres._act_fun(x)
         x = incres._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -96,25 +99,27 @@ class ResNet(LabelCNN):
     FULL_PREACTIVATION = False
 
     def __init__(self, full_preactivation=False):
-        super().__init__(image_size=128, batch_size=32, relu_version='parametric', model_name="ResNet")
+        super().__init__(image_size=112, batch_size=16, relu_version='parametric', model_name="ResNet")
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
-        rednet = RedNetLayers(relu_version=self.RELU_VERSION, full_preactivation=self.FULL_PREACTIVATION)
+        resnet = ResNetLayers(relu_version=self.RELU_VERSION, full_preactivation=self.FULL_PREACTIVATION)
 
         input_tensor = Input(shape=self.INPUT_SHAPE)
         x = input_tensor
-        x, _ = rednet.stem(x)
-        for i, layers in enumerate(rednet.REPETITIONS_SMALL):
+        x = resnet.stem(x)
+        for i, layers in enumerate(resnet.REPETITIONS_SMALL):
             for j in range(layers):
-                x = rednet.vanilla(x, rednet.FEATURES[i], (j == 0))
+                x = resnet.vanilla(x, resnet.FEATURES[i], (j == 0))
 
-        x = rednet._flatten(x)
-        x = rednet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
-        x = rednet._dropout(x, 0.5)
-        x = rednet._act_fun(x)
-        x = rednet._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = resnet._flatten(x)
+        x = resnet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        x = resnet._dropout(x, 0.5)
+        x = resnet._act_fun(x)
+        x = resnet._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -162,7 +167,9 @@ class RedNet(FullCNN):
         x = rednet.last_block(x)
 
         x = rednet._tcbr(x, self.NB_CLASSES, kernel_size=(2, 2), strides=(2, 2))
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 
@@ -206,7 +213,9 @@ class SimpleNet(LabelCNN):
         x = layers._dropout(x, 0.5)
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
 
 class EasyNet(LabelCNN):
@@ -240,5 +249,7 @@ class EasyNet(LabelCNN):
         x = layers._dropout(x, 0.5)
         x = layers._act_fun(x)
         x = layers._dense(x, self.NB_CLASSES)  # Returns a logit
+        x = Permute((2, 3, 1))(x)  # Permute to allow softmax to work
         x = Activation('softmax')(x)  # No logit anymore
+        x = Permute((3, 1, 2))(x)  # Permute back data to have normal format
         self.model = Model(inputs=input_tensor, outputs=x)
