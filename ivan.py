@@ -72,7 +72,6 @@ class SegNet(FullCNN):
         x = layers.cbr(x, 64, kernel_size=(3, 3), strides=(1, 1), dilation_rate=(1, 1), padding='same')
 
         # PART 5
-        # PART 3
         x = UpSampling2D(size=(2, 2), data_format="channels_first")(x)
         x = layers.cbr(x, 64, kernel_size=(3, 3), strides=(1, 1), dilation_rate=(1, 1), padding='same')
         x = layers._conv2d(x, 2, 1, strides=(1, 1), dilation_rate=(1, 1), padding='same')
