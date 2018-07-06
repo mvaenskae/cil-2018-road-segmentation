@@ -145,8 +145,8 @@ class FullCNN(AbstractCNN):
             print('Loaded checkpoint for model to continue training')
         else:
             self.model.compile(loss=softmax_crossentropy_with_logits,
-                               optimizer=Adam(lr=1e-5),
-                               metrics=model_metrics)
+                               optimizer=Adam(lr=1e-5))
+                               #metrics=model_metrics))
 
         try:
             self.model.fit_generator(

@@ -94,8 +94,8 @@ class InceptionResNet(LabelCNN):
 class ResNet(LabelCNN):
     FULL_PREACTIVATION = False
 
-    def __init__(self, full_preactivation=False):
-        super().__init__(image_size=112, batch_size=16, relu_version='parametric', model_name="ResNet")
+    def __init__(self, model_name="ResNet18", full_preactivation=False):
+        super().__init__(image_size=112, batch_size=16, relu_version='parametric', model_name=model_name)
         self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
@@ -109,8 +109,8 @@ class ResNet(LabelCNN):
                 x = resnet.vanilla(x, resnet.FEATURES[i], (j == 0))
 
         x = resnet._flatten(x)
-        x = resnet._dense(x, 6 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
-        x = resnet._dropout(x, 0.5)
+        x = resnet._dense(x, 2 * ((self.IMAGE_SIZE * self.IMAGE_SIZE) // (self.PATCH_SIZE * self.PATCH_SIZE)))
+        # x = resnet._dropout(x, 0.5)
         x = resnet._act_fun(x)
         x = resnet._dense(x, self.NB_CLASSES)  # Returns a logit
         x = Activation('softmax')(x)  # No logit anymore
@@ -149,13 +149,8 @@ class RedNet(FullCNN):
 
         for i, layers in enumerate(rednet.REPETITIONS_UP_NORMAL):
             for j in range(layers):
-                if i == 0:
-                    x = rednet.residual_up_keep_filters(x, rednet.FEATURES_UP[0], (j == layers - 1))
-                else:
-                    x = rednet.residual_up(x, rednet.FEATURES_UP[i], (j == layers - 1))
+                x = rednet.residual_up(x, rednet.FEATURES_UP[i], (j == layers - 1))
             if i + 1 != len(rednet.REPETITIONS_UP_NORMAL):
-                if i == 0:
-                    x = Cropping2D(cropping=((0, 1), (0, 1)), data_format=self.DATA_FORMAT)(x)
                 x = Add()([x, agent_layers.pop()])
 
         x = rednet.last_block(x)

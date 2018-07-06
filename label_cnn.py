@@ -41,7 +41,7 @@ class LabelCNN(AbstractCNN):
         """
         # Read images from disk and generate training and validation set
         self.images, self.groundtruth = read_images_plus_labels()
-        self.images_train, self.groundtruth_train, self.images_validate, self.groundtruth_validate = split_dataset(self.images, self.groundtruth)
+        self.images_train, self.groundtruth_train, self.images_validate, self.groundtruth_validate = split_dataset(self.images, self.groundtruth, 15)
 
         # Print some extraneous metrics helpful to users of this template
         samples_per_image = self.images.shape[1] * self.images.shape[2] // (self.PATCH_SIZE * self.PATCH_SIZE)
@@ -65,25 +65,25 @@ class LabelCNN(AbstractCNN):
                                               self.IMAGE_SIZE, self.PATCH_SIZE, batches_validate)
 
         # Reduce learning rate iff validation average f1 score not improving for AdamOptimizer
-        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_macro_f1',
+        reduce_lr_on_plateau_adam = ReduceLROnPlateau(monitor='val_avg_f1',
                                                       factor=0.1,
-                                                      patience=5,
+                                                      patience=2,
                                                       verbose=1,
                                                       mode='max',
-                                                      min_delta=5e-3,
+                                                      min_delta=1e-2,
                                                       cooldown=0,
                                                       min_lr=1e-7)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_adam = EarlyStopping(monitor='val_macro_f1',
-                                            min_delta=5e-4,
-                                            patience=11,
+        early_stopping_adam = EarlyStopping(monitor='val_avg_f1',
+                                            min_delta=1e-3,
+                                            patience=5,
                                             verbose=1,
                                             mode='max')
 
         # Reduce learning rate iff validation average f1 score not improving for SGD
-        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_macro_f1',
-                                                     factor=0.25,
+        reduce_lr_on_plateau_sgd = ReduceLROnPlateau(monitor='val_avg_f1',
+                                                     factor=0.5,
                                                      patience=5,
                                                      verbose=1,
                                                      mode='max',
@@ -92,7 +92,7 @@ class LabelCNN(AbstractCNN):
                                                      min_lr=1e-8)
 
         # Stop training early iff validation average f1 score not improving for AdamOptimizer
-        early_stopping_sgd = EarlyStopping(monitor='val_macro_f1',
+        early_stopping_sgd = EarlyStopping(monitor='val_avg_f1',
                                            min_delta=1e-4,
                                            patience=11,
                                            verbose=1,
@@ -120,16 +120,16 @@ class LabelCNN(AbstractCNN):
         #                                       write_images=False)
 
         # Save the model's state on each epoch, given the epoch has better fitness
-        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_macro_f1:.4f}.hdf5"
+        filepath = "weights-" + self.MODEL_NAME + "-e{epoch:03d}-f1-{val_avg_f1:.4f}.hdf5"
         checkpointer = ModelCheckpoint(filepath=filepath,
-                                       monitor='val_macro_f1',
+                                       monitor='val_avg_f1',
                                        mode='max',
                                        verbose=1,
                                        save_best_only=True,
                                        period=1)
 
         # Shuffle/augment images at the start of each epoch
-        image_shuffler = ImageShuffler(training_data, validation_data)
+        image_shuffler = ImageShufflerOld(training_data, validation_data)
 
         def softmax_crossentropy_with_logits(y_true, y_pred):
             """
@@ -141,10 +141,11 @@ class LabelCNN(AbstractCNN):
             return K.categorical_crossentropy(y_true, y_pred, from_logits=False, axis=1)
 
         # Define in a list what callbacks and metrics we want included
-        model_callbacks_adam = [tensorboard, checkpointer, image_shuffler]
+        model_callbacks_adam = [tensorboard, checkpointer, image_shuffler, reduce_lr_on_plateau_adam,
+                                early_stopping_adam]
         model_callbacks_sgd = [tensorboard, checkpointer, reduce_lr_on_plateau_sgd, early_stopping_sgd, image_shuffler]
         model_metrics = [metrics.categorical_accuracy, ExtraMetrics.mcor, ExtraMetrics.cil_error, ExtraMetrics.road_f1,
-                         ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1]
+                         ExtraMetrics.non_road_f1, ExtraMetrics.macro_f1, ExtraMetrics.avg_f1]
 
         if checkpoint is not None:
             self.model = load_model(checkpoint, custom_objects={'softmax_crossentropy_with_logits': softmax_crossentropy_with_logits,
@@ -152,7 +153,8 @@ class LabelCNN(AbstractCNN):
                                                                 'cil_error': ExtraMetrics.cil_error,
                                                                 'road_f1': ExtraMetrics.road_f1,
                                                                 'non_road_f1': ExtraMetrics.non_road_f1,
-                                                                'macro_f1': ExtraMetrics.macro_f1})
+                                                                'macro_f1': ExtraMetrics.macro_f1,
+                                                                'avg_f1': ExtraMetrics.avg_f1})
             print('Loaded checkpoint for model to continue training')
         else:
             self.model.compile(loss=softmax_crossentropy_with_logits,
@@ -172,21 +174,21 @@ class LabelCNN(AbstractCNN):
                 shuffle=False,  # Not needed, our generator shuffles everything already
                 use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
 
-            # # TODO: Generate callback which makes this double-call to the network not required.
-            # self.model.compile(loss=softmax_crossentropy_with_logits,
-            #                    optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
-            #                    metrics=model_metrics)
-            #
-            # self.model.fit_generator(
-            #     generator=training_data,
-            #     steps_per_epoch=batches_train,
-            #     epochs=epochs,
-            #     verbose=1,
-            #     callbacks=model_callbacks_sgd,
-            #     validation_data=validation_data,
-            #     validation_steps=batches_validate,
-            #     shuffle=False,  # Not needed, our generator shuffles everything already
-            #     use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
+            # TODO: Generate callback which makes this double-call to the network not required.
+            self.model.compile(loss=softmax_crossentropy_with_logits,
+                               optimizer=SGD(lr=1e-4, momentum=0.9, nesterov=False),
+                               metrics=model_metrics)
+
+            self.model.fit_generator(
+                generator=training_data,
+                steps_per_epoch=batches_train,
+                epochs=epochs,
+                verbose=1,
+                callbacks=model_callbacks_sgd,
+                validation_data=validation_data,
+                validation_steps=batches_validate,
+                shuffle=False,  # Not needed, our generator shuffles everything already
+                use_multiprocessing=False)  # This requires a thread-safe generator which we don't have
         except KeyboardInterrupt:
             # Do not throw away the model in case the user stops the training process
             filepath = "weights-" + self.MODEL_NAME + "-SIG2.hdf5"

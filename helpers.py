@@ -324,15 +324,14 @@ def read_images_plus_labels():
     return images_np, ground_truth_np
 
 
-def split_dataset(images, gt_labels):
+def split_dataset(images, gt_labels, validate_count=8):
     """
     Generate a split of 15 images for training and validation (plus labels)
     :param images: Array of images
     :param gt_labels: Array of ground truth labels
-    :param seed: Seed for repeatability
+    :param validate_count: How many images belong to the validation dataset?
     :return: 4-tuple of [img_train, gt_train, img_validate, gt_validate]
     """
-    validate_count = 8
     image_count = len(images)
     train_count = image_count - validate_count
     index_array = list(range(image_count))
@@ -423,8 +422,11 @@ def epoch_augmentation(__data, __ground_truth, padding):
     ).to_deterministic()
 
     augment_image = iaa.Sequential(
-        iaa.Multiply((0.9, 1.1)),
-        iaa.ContrastNormalization((0.9, 1.2))
+        iaa.SomeOf((0, None), [
+            iaa.Multiply((0.8, 1.2)),
+            iaa.ContrastNormalization((0.8, 1.2))
+        ], random_order=True)
+
     ).to_deterministic()
 
     __data = img_float_to_uint8(__data)
@@ -436,6 +438,50 @@ def epoch_augmentation(__data, __ground_truth, padding):
     road_ids = aug_ground_truth > 0.5
     aug_image[road_ids] = aug_road[road_ids]
 
+    aug_image = aug_image / 255.0
+
+    return aug_image, aug_ground_truth
+
+
+def epoch_augmentation_old(__data, __ground_truth, padding):
+    MAX = 2*padding
+    assert (__data.shape != __ground_truth.shape), "Incorrect dimensions for data and labels"
+    assert (MAX >= 0), "Augmentation would reduce images, is this really what you want?"
+
+    offset_x, offset_y = np.random.randint(0, MAX + 1, 2)
+    padding = iaa.Pad(
+        px=(offset_y, offset_x, MAX - offset_y, MAX - offset_x),
+        pad_mode=["reflect"],
+        keep_size=False
+    )
+    affine = iaa.Affine(
+        rotate=(-180, 180),
+        shear=(-5, 5),
+        scale=(0.9, 1.1),
+        mode=["reflect"]
+    )
+    augment_both = iaa.Sequential(
+        [
+            padding,                    # Pad the image to requested padding
+            iaa.Sometimes(0.3, affine)  # Apply sometimes more interesting augmentations
+        ],
+        random_order=False
+    ).to_deterministic()
+
+    augment_image = iaa.Sequential(
+        iaa.SomeOf((0, None), [
+            iaa.Multiply((0.8, 1.2)),
+            iaa.ContrastNormalization((0.8, 1.2)),
+            iaa.Dropout(0.01),                      # Drop out single pixels
+            iaa.SaltAndPepper(0.01)                 # Add salt-n-pepper noise
+        ], random_order=True)
+
+    ).to_deterministic()
+
+    __data = img_float_to_uint8(__data)
+    aug_image = augment_both.augment_image(__data)
+    aug_ground_truth = augment_both.augment_image(__ground_truth)
+    aug_image = augment_image.augment_image(aug_image)
     aug_image = aug_image / 255.0
 
     return aug_image, aug_ground_truth

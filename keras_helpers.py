@@ -7,7 +7,7 @@ from keras.layers import Add, Lambda
 from keras.utils import np_utils, Sequence
 from keras import backend as K
 from keras.callbacks import TensorBoard, Callback
-from helpers import epoch_augmentation, get_feature_maps
+from helpers import epoch_augmentation, epoch_augmentation_old, get_feature_maps
 
 
 class BatchStreamer(object):
@@ -269,6 +269,31 @@ class ImageShuffler(Callback):
         self.on_epoch_begin(-1)
 
 
+class ImageShufflerOld(ImageShuffler):
+    def augment_images(self, images, groundtruths, padding):
+        """
+        Modify our images to have random modifications at each epoch.
+        :return: Nothing
+        """
+        img_aug, gt_aug = [], []
+        for idx in range(images.shape[0]):
+            img_temp, gt_temp = epoch_augmentation_old(images[idx], groundtruths[idx], padding=padding)
+            img_aug.append(img_temp)
+            gt_aug.append(gt_temp)
+        augmented_images = np.reshape(
+            np.asarray(img_aug), (images.shape[0],
+                                  images.shape[1] + 2 * padding,
+                                  images.shape[2] + 2 * padding,
+                                  images.shape[3])
+        )
+        augmented_groundtruth = np.reshape(
+            np.asarray(gt_aug), (groundtruths.shape[0],
+                                 groundtruths.shape[1] + 2 * padding,
+                                 groundtruths.shape[2] + 2 * padding)
+        )
+        return augmented_images, augmented_groundtruth
+
+
 class TensorBoardWrapper(TensorBoard):
     '''Sets the self.validation_data property for use with TensorBoard callback.'''
     # TODO: Validate for NCHW and if required fix it
@@ -423,6 +448,18 @@ class ExtraMetrics(object):
         rec = (rec_road + rec_bg) / 2
 
         return 2 * ((prec * rec) / (prec + rec + K.epsilon()))
+
+    @staticmethod
+    def avg_f1(y_true, y_pred):
+        """
+        Simple unweighted average of two F1-scores.
+        :param y_true: True labels
+        :param y_pred: Prediction labels
+        :return: Average F1 score of both classes
+        """
+        f1_road = ExtraMetrics.road_f1(y_true, y_pred)
+        f1_non_road = ExtraMetrics.non_road_f1(y_true, y_pred)
+        return (f1_road + f1_non_road) / 2
 
     @staticmethod
     def micro_f1(y_true, y_pred):
@@ -809,10 +846,10 @@ class RedNetLayers(ResNetLayers):
     FULL_PREACTIVATION = False
 
     # RedNet constants
-    FEATURES = [64, 128, 256, 512, 512]
-    FEATURES_UP = [512, 512, 256, 128, 64]
-    REPETITIONS_NORMAL = [3, 4, 6, 3, 2]
-    REPETITIONS_UP_NORMAL = [2, 3, 6, 4, 3]
+    FEATURES = [64, 128, 256, 512]
+    FEATURES_UP = [512, 256, 128, 64]
+    REPETITIONS_NORMAL = [3, 4, 6, 3]
+    REPETITIONS_UP_NORMAL = [3, 6, 4, 3]
 
     def __init__(self, data_format='channels_first', relu_version=None, leaky_relu_alpha=0.01,
                  full_preactivation=False):
