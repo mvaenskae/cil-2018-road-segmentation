@@ -1,0 +1,1 @@
+bsub -W 4:00 -n2 -R rusage[mem=8192,ngpus_excl_p=1] "module load gcc/6.3.0 python_gpu/3.6.4 && python3 main.py"
