@@ -1,6 +1,6 @@
 from full_cnn import FullCNN
 from keras import Model
-from keras.layers import Activation, Input, UpSampling2D, Lambda
+from keras.layers import Input, UpSampling2D, Lambda
 from keras_helpers import BasicLayers
 from keras.activations import softmax
 
@@ -8,9 +8,8 @@ from keras.activations import softmax
 class SegNet(FullCNN):
     FULL_PREACTIVATION = False
 
-    def __init__(self, full_preactivation=False):
+    def __init__(self):
         super().__init__(image_size=608, batch_size=4, model_name="SegNet")
-        self.FULL_PREACTIVATION = full_preactivation
 
     def build_model(self):
         layers = BasicLayers(relu_version=self.RELU_VERSION)
